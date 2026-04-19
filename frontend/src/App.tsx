@@ -65,6 +65,12 @@ function App() {
   return (
     <InboxProvider>
       <div className="flex h-screen w-screen overflow-hidden bg-white text-gray-900">
+        {titleBarHeight > 0 && (
+          <div
+            style={{ height: titleBarHeight, WebkitAppRegion: "drag" } as React.CSSProperties}
+            className="fixed top-0 left-0 right-0 z-50"
+          />
+        )}
         <aside
           style={{ width: sidebarWidth, paddingTop: titleBarHeight }}
           className="flex flex-col flex-shrink-0 bg-white relative transition-[padding-top] duration-200"

@@ -51,8 +51,6 @@ async function createWindow() {
 
   await mainWindow.loadURL(url);
 
-  if (isDev) mainWindow.webContents.openDevTools({ mode: "detach" });
-
   mainWindow.on("enter-full-screen", () => mainWindow?.webContents.send("fullscreen-change", true));
   mainWindow.on("leave-full-screen", () => mainWindow?.webContents.send("fullscreen-change", false));
 

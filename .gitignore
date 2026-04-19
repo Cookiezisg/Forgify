@@ -1,0 +1,9 @@
+node_modules/
+dist-electron/
+frontend/dist/
+frontend/node_modules/
+frontend/bindings/
+backend/forgify-backend
+backend/forgify-backend.exe
+*.db
+.DS_Store

@@ -64,28 +64,24 @@ func (s *SettingsService) SaveGeneralSettings(gs *GeneralSettings) error {
 ## 3. 数据导出
 
 ```go
-// app.go
-func (a *App) ExportData(destPath string) error {
-    return storage.BackupDB(destPath)
-}
-
-// storage/backup.go
-func BackupDB(destPath string) error {
-    src, _ := os.ReadFile(storage.DBPath())
-    return os.WriteFile(destPath, src, 0644)
-}
+// backend/internal/server/routes.go handler
+// exportData 将 DB 文件作为响应流返回，前端通过 Electron IPC 保存到磁盘
+mux.HandleFunc("GET /api/settings/export", s.exportData)
 ```
 
-前端使用 Wails 文件对话框：
+前端通过 Electron dialog IPC 获取保存路径：
 
 ```typescript
 // SettingsPage.tsx
 const handleExport = async () => {
-    const path = await SaveFileDialog({
-        DefaultFilename: 'forgify-backup.db',
-        Filters: [{ DisplayName: 'Forgify Backup', Pattern: '*.db' }],
+    const { filePath } = await window.electronAPI.showSaveDialog({
+        defaultPath: 'forgify-backup.db',
+        filters: [{ name: 'Forgify Backup', extensions: ['db'] }],
     })
-    if (path) await ExportData(path)
+    if (!filePath) return
+    const blob = await fetch(`http://127.0.0.1:${port}/api/settings/export`).then(r => r.blob())
+    // 写入通过 Electron IPC
+    await window.electronAPI.saveFile(filePath, await blob.arrayBuffer())
 }
 ```
 
@@ -94,21 +90,10 @@ const handleExport = async () => {
 ## 4. 危险操作
 
 ```go
-// app.go
-func (a *App) ClearRunHistory() error {
-    _, err := storage.DB().Exec(`DELETE FROM runs`)
-    return err
-}
-
-func (a *App) ResetAllPermissions() error {
-    _, err := storage.DB().Exec(`DELETE FROM tool_permissions`)
-    return err
-}
-
-func (a *App) ClearConversations() error {
-    _, err := storage.DB().Exec(`DELETE FROM messages; DELETE FROM conversations`)
-    return err
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("POST /api/settings/clear-run-history", s.clearRunHistory)
+mux.HandleFunc("POST /api/settings/reset-permissions", s.resetAllPermissions)
+mux.HandleFunc("POST /api/settings/clear-conversations", s.clearConversations)
 ```
 
 ---

@@ -260,11 +260,11 @@ func ClassifyError(stderr string) string {
 ```makefile
 # Makefile
 build:
-    cp $(shell which uv) build/Forgify.app/Contents/MacOS/uv
-    wails build
+    cp $(shell which uv) dist-electron/uv
+    npm run build
 ```
 
-Windows/Linux 类似，确保 uv 与主可执行文件同目录。
+Windows/Linux 类似，确保 uv 与 Go 后端可执行文件同目录（`dist-electron/`）。
 
 ---
 

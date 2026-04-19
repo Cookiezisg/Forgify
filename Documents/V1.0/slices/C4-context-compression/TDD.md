@@ -235,13 +235,11 @@ func (s *MessageService) ReplaceWithSummary(convID, content string) error {
 
 ---
 
-## 5. Wails Bindings
+## 5. HTTP API 路由
 
 ```go
-// app.go
-func (a *App) FullCompact(conversationID string) error {
-    return a.compressor.FullCompact(context.Background(), conversationID)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("POST /api/conversations/{id}/compact", s.fullCompact)
 ```
 
 ---

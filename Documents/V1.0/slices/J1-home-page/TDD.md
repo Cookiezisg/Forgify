@@ -183,11 +183,12 @@ func (s *StatsService) GetRecentRuns(limit int) ([]*RecentRun, error) {
 
 ---
 
-## 6. Wails Bindings
+## 6. HTTP API 路由
 
 ```go
-func (a *App) GetHomeStats() (*service.HomeStats, error) { return a.statsSvc.GetHomeStats() }
-func (a *App) GetRecentRuns(limit int) ([]*service.RecentRun, error) { return a.statsSvc.GetRecentRuns(limit) }
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/home/stats", s.getHomeStats)
+mux.HandleFunc("GET /api/home/recent-runs", s.getRecentRuns)
 ```
 
 ---

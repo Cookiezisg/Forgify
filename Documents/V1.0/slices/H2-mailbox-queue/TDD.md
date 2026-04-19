@@ -150,24 +150,13 @@ func (s *MailboxService) SendAndNotify(msg MailboxMessage, bridge *events.Bridge
 
 ---
 
-## 5. Wails Bindings
+## 5. HTTP API 路由
 
 ```go
-func (a *App) ListMailbox() ([]*service.MailboxMessage, error) {
-    return a.mailboxSvc.List("")
-}
-
-func (a *App) MarkMailboxRead(id string) error {
-    err := a.mailboxSvc.MarkRead(id)
-    if err != nil { return err }
-    count, _ := a.mailboxSvc.UnreadCount()
-    a.bridge.Emit(events.MailboxUpdated, map[string]any{"unreadCount": count})
-    return nil
-}
-
-func (a *App) DismissMailboxMessage(id string) error {
-    return a.mailboxSvc.Dismiss(id)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/mailbox", s.listMailbox)
+mux.HandleFunc("PATCH /api/mailbox/{id}/read", s.markMailboxRead)
+mux.HandleFunc("PATCH /api/mailbox/{id}/dismiss", s.dismissMailboxMessage)
 ```
 
 ---

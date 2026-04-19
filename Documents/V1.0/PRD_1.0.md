@@ -532,7 +532,7 @@ Forgify 支持所有主流 LLM API：Anthropic Claude、OpenAI / Azure OpenAI、
 
 ### 7.1 运行方式
 
-- Forgify 是一个桌面应用，基于 **Wails v3**（Go 后端 + WebView 前端）
+- Forgify 是一个桌面应用，基于 **Electron**（Go HTTP 后端 + Chromium 前端）
 - 启动后常驻后台，状态栏有图标
 - 关闭窗口 ≠ 退出应用，后台继续运行定时任务
 - 真正退出需从状态栏菜单选择"退出 Forgify"
@@ -561,7 +561,7 @@ Forgify 支持所有主流 LLM API：Anthropic Claude、OpenAI / Azure OpenAI、
 
 | 层级 | 技术选型 |
 |---|---|
-| 桌面框架 | Wails v3（Go + WebView，单一可执行文件） |
+| 桌面框架 | Electron（Chromium 前端 + Go HTTP subprocess） |
 | 后端 | Go + Eino（CloudWeGo LLM 编排框架） |
 | 前端 | React + TypeScript |
 | 画布引擎 | React Flow |

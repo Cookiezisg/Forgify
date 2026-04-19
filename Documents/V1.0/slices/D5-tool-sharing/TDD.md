@@ -10,7 +10,7 @@
 | 决策 | 选择 | 理由 |
 |---|---|---|
 | 文件格式 | JSON（扩展名 `.forgify-tool`）| 可读、可调试、无需额外解析库 |
-| 文件对话框 | Wails v3 native dialog API | 不依赖第三方库 |
+| 文件对话框 | Electron dialog IPC | 通过 ipcMain 调用 Electron dialog API |
 | 依赖识别 | 复用 `forge.ParseFunction` 的 requirements 提取 | 不重复实现 |
 | 名称冲突 | 按 display_name 检查，不按 id | 导入同名工具是常见场景 |
 
@@ -148,59 +148,23 @@ func (s *ToolShareService) ImportRename(tool *Tool) error {
 
 ---
 
-## 4. Wails Bindings
+## 4. HTTP API 路由 + Electron IPC
 
 ```go
-// app.go
-func (a *App) ExportTool(toolID string) error {
-    data, err := a.toolShareSvc.Export(toolID)
-    if err != nil { return err }
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/tools/{id}/export", s.exportTool)   // 返回 JSON bytes
+mux.HandleFunc("POST /api/tools/import/parse", s.importToolFileParse)
+mux.HandleFunc("POST /api/tools/import/confirm", s.confirmToolImport)
+```
 
-    // 获取工具名作为默认文件名
-    tool, _ := a.toolSvc.Get(toolID)
-    defaultName := tool.DisplayName + ".forgify-tool"
-
-    // 打开保存对话框
-    path, err := a.runtime.SaveFileDialog(runtime.SaveDialogOptions{
-        DefaultFilename: defaultName,
-        Filters: []runtime.FileFilter{{
-            DisplayName: "Forgify Tool (*.forgify-tool)",
-            Pattern:     "*.forgify-tool",
-        }},
-    })
-    if err != nil || path == "" { return err }
-
-    return os.WriteFile(path, data, 0644)
-}
-
-// ImportToolFile 解析文件，返回冲突信息（前端决策后再调用实际导入方法）
-func (a *App) ImportToolFile(path string) (*service.ImportResult, error) {
-    data, err := os.ReadFile(path)
-    if err != nil { return nil, fmt.Errorf("无法读取文件") }
-    return a.toolShareSvc.Parse(data)
-}
-
-func (a *App) ConfirmToolImport(result *service.ImportResult, action string) error {
-    switch action {
-    case "new":
-        return a.toolShareSvc.ImportNew(result.Tool)
-    case "replace":
-        return a.toolShareSvc.ImportReplace(result.ConflictID, result.Tool)
-    case "rename":
-        return a.toolShareSvc.ImportRename(result.Tool)
-    }
-    return nil
-}
-
-// OpenImportDialog 打开文件选择对话框，返回选中文件路径
-func (a *App) OpenImportDialog() (string, error) {
-    return a.runtime.OpenFileDialog(runtime.OpenDialogOptions{
-        Filters: []runtime.FileFilter{{
-            DisplayName: "Forgify Tool (*.forgify-tool)",
-            Pattern:     "*.forgify-tool",
-        }},
-    })
-}
+```typescript
+// electron/main.ts — 文件对话框通过 Electron IPC 处理
+ipcMain.handle('show-save-dialog', async (_, options) => {
+    return dialog.showSaveDialog(mainWindow, options)
+})
+ipcMain.handle('show-open-dialog', async (_, options) => {
+    return dialog.showOpenDialog(mainWindow, options)
+})
 ```
 
 ---

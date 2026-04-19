@@ -61,46 +61,14 @@ func (s *WorkflowService) PreDeployCheck(id string, toolSvc *ToolService, apiKey
 
 ---
 
-## 3. Wails Bindings
+## 3. HTTP API 路由
 
 ```go
-func (a *App) SetWorkflowReady(id string) error {
-    result := compiler.Compile(a.workflowSvc.MustGet(id).Definition, a.toolSvc)
-    if len(result.Errors) > 0 {
-        return fmt.Errorf("编译失败：%d 个错误", len(result.Errors))
-    }
-    return a.workflowSvc.SetStatus(id, "ready")
-}
-
-func (a *App) DeployWorkflow(id string) (*service.DeployCheck, error) {
-    check := a.workflowSvc.PreDeployCheck(id, a.toolSvc, a.apiKeySvc)
-    if !check.OK {
-        return &check, nil // 返回给前端显示错误列表
-    }
-    if err := a.workflowSvc.SetStatus(id, "deployed"); err != nil {
-        return nil, err
-    }
-    wf, _ := a.workflowSvc.Get(id)
-    a.scheduler.Deregister(id)
-    a.scheduler.Register(wf)
-    a.eventMgr.RegisterWorkflow(wf)  // G3: 事件触发
-    a.bridge.Emit(events.WorkflowDeployed, map[string]any{"workflowId": id})
-    return &check, nil
-}
-
-func (a *App) PauseWorkflow(id string) error {
-    if err := a.workflowSvc.SetStatus(id, "paused"); err != nil { return err }
-    a.scheduler.Deregister(id)
-    a.eventMgr.DeregisterWorkflow(id)
-    return nil
-}
-
-func (a *App) ArchiveWorkflow(id string) error {
-    if err := a.workflowSvc.SetStatus(id, "archived"); err != nil { return err }
-    a.scheduler.Deregister(id)
-    a.eventMgr.DeregisterWorkflow(id)
-    return nil
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("POST /api/workflows/{id}/set-ready", s.setWorkflowReady)
+mux.HandleFunc("POST /api/workflows/{id}/deploy", s.deployWorkflow)
+mux.HandleFunc("POST /api/workflows/{id}/pause", s.pauseWorkflow)
+mux.HandleFunc("POST /api/workflows/{id}/archive", s.archiveWorkflow)
 ```
 
 ---

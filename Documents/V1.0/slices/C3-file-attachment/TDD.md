@@ -238,20 +238,12 @@ func mimeType(name string) string {
 
 ---
 
-## 4. Wails Binding
+## 4. HTTP API 路由
 
 ```go
-// app.go
-// 前端通过 Wails 读取本地文件内容，传给 Go 处理
-func (a *App) PrepareAttachment(name string, content []byte) (*attachment.FileInfo, error) {
-    if err := attachment.Validate(name, int64(len(content))); err != nil {
-        return nil, err
-    }
-    return &attachment.FileInfo{
-        Name: name, Size: int64(len(content)),
-        Kind: attachment.Kind(name), Content: content,
-    }, nil
-}
+// backend/internal/server/routes.go
+// 前端通过 multipart/form-data 上传文件
+mux.HandleFunc("POST /api/attachments/prepare", s.prepareAttachment)
 ```
 
 ---

@@ -132,20 +132,13 @@ function ResolvedBadge({ status }: { status: string }) {
 
 ---
 
-## 3. Wails Binding 扩展
+## 3. HTTP API 路由扩展
 
 ```go
-func (a *App) GetApproval(id string) (*service.Approval, error) {
-    return a.approvalSvc.Get(id)
-}
-
-func (a *App) GrantPermission(toolName string) error {
-    return a.permSvc.Grant(toolName)
-}
-
-func (a *App) ResolveMailboxMessage(id string) error {
-    return a.mailboxSvc.Resolve(id)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/approvals/{id}", s.getApproval)
+mux.HandleFunc("POST /api/permissions/{toolName}/grant", s.grantPermission)
+mux.HandleFunc("PATCH /api/mailbox/{id}/resolve", s.resolveMailboxMessage)
 ```
 
 ---

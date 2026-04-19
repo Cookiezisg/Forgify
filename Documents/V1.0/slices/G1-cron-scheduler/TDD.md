@@ -125,20 +125,9 @@ func (s *WorkflowService) ListDeployed() ([]*Workflow, error) {
 ## 5. 与部署/暂停联动
 
 ```go
-// app.go
-func (a *App) DeployWorkflow(id string) error {
-    if err := a.workflowSvc.SetStatus(id, "deployed"); err != nil { return err }
-    wf, _ := a.workflowSvc.Get(id)
-    a.scheduler.Deregister(id) // 防止重复注册
-    a.scheduler.Register(wf)
-    return nil
-}
-
-func (a *App) PauseWorkflow(id string) error {
-    if err := a.workflowSvc.SetStatus(id, "paused"); err != nil { return err }
-    a.scheduler.Deregister(id)
-    return nil
-}
+// backend/internal/server/routes.go（通过 G2 路由的 deploy/pause handler 触发）
+// scheduler.Register(wf) 在 deployWorkflow handler 中调用
+// scheduler.Deregister(id) 在 pauseWorkflow handler 中调用
 ```
 
 ---

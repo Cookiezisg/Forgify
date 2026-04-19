@@ -53,16 +53,12 @@ func (s *RunService) Prune(workflowID string, keepCount int) error {
 
 ---
 
-## 3. Wails Bindings
+## 3. HTTP API 路由
 
 ```go
-func (a *App) ListRunHistory(workflowID string) ([]*service.Run, error) {
-    return a.runSvc.ListByWorkflow(workflowID, 100)
-}
-
-func (a *App) GetRunDetail(runID string) (*service.RunDetail, error) {
-    return a.runSvc.GetWithNodeResults(runID)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/workflows/{id}/runs", s.listRunHistory)
+mux.HandleFunc("GET /api/runs/{runId}/detail", s.getRunDetail)
 ```
 
 ---
@@ -78,7 +74,7 @@ export function RunHistoryPanel({ workflowId, onSelect }: {
     const [runs, setRuns] = useState<Run[]>([])
 
     useEffect(() => {
-        ListRunHistory(workflowId).then(setRuns)
+        fetch(`http://127.0.0.1:${port}/api/workflows/${workflowId}/runs`).then(r => r.json()).then(setRuns)
     }, [workflowId])
 
     return (

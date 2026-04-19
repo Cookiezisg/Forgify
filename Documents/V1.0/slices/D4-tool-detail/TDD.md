@@ -29,23 +29,14 @@ frontend/src/
 
 ---
 
-## 3. Wails Bindings
+## 3. HTTP API 路由
 
 ```go
-// app.go（复用 D1/D2 已有绑定，新增以下）
-func (a *App) GetTool(id string) (*service.Tool, error) {
-    return a.toolSvc.Get(id)
-}
-func (a *App) UpdateTool(tool *service.Tool) error {
-    funcName, params, reqs, err := forge.ParseFunction(tool.Code)
-    if err != nil { return err }
-    tool.Name, tool.Parameters, tool.Requirements = funcName, params, reqs
-    return a.toolSvc.Save(tool)
-}
-func (a *App) ListToolTestHistory(toolID string) ([]*service.ToolTestRecord, error) {
-    return a.toolTestSvc.List(toolID)
-}
-// RunTool 已在 D2 定义
+// backend/internal/server/routes.go（复用 D1/D2 已有路由，新增以下）
+mux.HandleFunc("GET /api/tools/{id}", s.getTool)
+mux.HandleFunc("PUT /api/tools/{id}", s.updateTool)
+mux.HandleFunc("GET /api/tools/{id}/test-history", s.listToolTestHistory)
+// POST /api/tools/{id}/run 已在 D2 定义
 ```
 
 ---

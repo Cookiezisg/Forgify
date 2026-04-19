@@ -22,7 +22,7 @@
 
 | 切片 | 描述 | 状态 | 备注 |
 |---|---|---|---|
-| **A1** App Shell | Wails 项目初始化，侧边栏四 Tab，SplitView | ⬜ | 先跑起来一个空壳 |
+| **A1** App Shell | Electron 项目初始化，侧边栏四 Tab，SplitView | ⬜ | 先跑起来一个空壳 |
 | **A2** Data Layer | SQLite 连接，001-012 迁移自动执行 | ⬜ | 所有表一次性建好 |
 | **A3** Event System | EventBridge，events 常量定义 | ⬜ | 先定义好所有 Event 名 |
 

@@ -136,24 +136,14 @@ func (s *ApprovalService) Decide(approvalID, status string, modifiedParams map[s
 
 ---
 
-## 4. Wails Bindings
+## 4. HTTP API 路由
 
 ```go
-func (a *App) GetPendingApprovals() ([]*service.Approval, error) {
-    return a.approvalSvc.ListPending()
-}
-
-func (a *App) ApproveAction(approvalID string) error {
-    return a.approvalSvc.Decide(approvalID, "approved", nil)
-}
-
-func (a *App) RejectAction(approvalID string) error {
-    return a.approvalSvc.Decide(approvalID, "rejected", nil)
-}
-
-func (a *App) ApproveWithModifiedParams(approvalID string, params map[string]any) error {
-    return a.approvalSvc.Decide(approvalID, "approved", params)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/approvals/pending", s.getPendingApprovals)
+mux.HandleFunc("POST /api/approvals/{id}/approve", s.approveAction)
+mux.HandleFunc("POST /api/approvals/{id}/reject", s.rejectAction)
+mux.HandleFunc("POST /api/approvals/{id}/approve-modified", s.approveWithModifiedParams)
 ```
 
 ---

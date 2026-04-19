@@ -179,16 +179,12 @@ func classifyError(err error) string {
 }
 ```
 
-### 3.4 app.go Bindings
+### 3.4 HTTP API 路由
 
 ```go
-func (a *App) SendMessage(conversationID, message string) error {
-    return a.chatService.SendMessage(conversationID, message)
-}
-
-func (a *App) StopGeneration(conversationID string) {
-    a.chatService.StopGeneration(conversationID)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("POST /api/chat/send", s.sendMessage)
+mux.HandleFunc("POST /api/chat/stop", s.stopGeneration)
 ```
 
 ---
@@ -200,7 +196,7 @@ func (a *App) StopGeneration(conversationID string) {
 ```typescript
 import { useState, useEffect, useCallback } from 'react'
 import { onEvent, EV } from '@/lib/events'
-import { SendMessage, StopGeneration } from '@/wailsjs/go/main/App'
+import { getBackendPort } from '@/lib/backend'
 
 interface Message {
     id: string
@@ -244,11 +240,19 @@ export function useStreaming(conversationId: string) {
             role: 'assistant', content: '', status: 'streaming'
         }
         setMessages(prev => [...prev, userMsg, assistantMsg])
-        await SendMessage(conversationId, text)
+        await fetch(`http://127.0.0.1:${getBackendPort()}/api/chat/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conversationId, message: text }),
+        })
     }, [conversationId])
 
     const stopGeneration = useCallback(() => {
-        StopGeneration(conversationId)
+        fetch(`http://127.0.0.1:${getBackendPort()}/api/chat/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conversationId }),
+        })
     }, [conversationId])
 
     return { messages, isStreaming, sendMessage, stopGeneration }

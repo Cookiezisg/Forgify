@@ -227,14 +227,14 @@ func TestConnection(ctx context.Context, provider, rawKey, baseURL string) ([]st
 
 ---
 
-## 6. 前端 Wails Binding
+## 6. HTTP API 路由
 
 ```go
-// app.go 暴露给前端
-func (a *App) ListAPIKeys() ([]*service.APIKey, error) { ... }
-func (a *App) SaveAPIKey(provider, name, key, baseURL string) (*service.APIKey, error) { ... }
-func (a *App) DeleteAPIKey(id string) error { ... }
-func (a *App) TestAPIKey(provider, key, baseURL string) ([]string, error) { ... }
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/api-keys", s.listAPIKeys)
+mux.HandleFunc("POST /api/api-keys", s.saveAPIKey)
+mux.HandleFunc("DELETE /api/api-keys/{id}", s.deleteAPIKey)
+mux.HandleFunc("POST /api/api-keys/test", s.testAPIKey)
 ```
 
 ---

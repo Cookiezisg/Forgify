@@ -69,9 +69,9 @@ func (s *RunService) GetFailedNodeResult(runID string) (*NodeResult, error) {
 ## 3. 错误修复入口：打开对话并触发 AI 诊断
 
 ```go
-// app.go
-// OpenRepairConversation 打开工作流绑定对话，并发送一条"修复引导"消息触发 AI 诊断
-func (a *App) OpenRepairConversation(workflowID string) (string, error) {
+// backend/internal/server/routes.go handler
+// openRepairConversation 打开工作流绑定对话，并发送一条"修复引导"消息触发 AI 诊断
+func (s *Server) openRepairConversation(workflowID string) (string, error) {
     // 查找或创建绑定到该工作流的对话
     convs, _ := a.convSvc.ListByAsset(workflowID, "workflow")
     var convID string
@@ -94,12 +94,11 @@ func (a *App) OpenRepairConversation(workflowID string) (string, error) {
 
 ---
 
-## 4. Wails Binding
+## 4. HTTP API 路由
 
 ```go
-func (a *App) OpenRepairConversation(workflowID string) (string, error) {
-    return a.openRepairConversation(workflowID)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("POST /api/workflows/{id}/repair-conversation", s.openRepairConversation)
 ```
 
 ---
@@ -109,7 +108,7 @@ func (a *App) OpenRepairConversation(workflowID string) (string, error) {
 ```tsx
 // WorkflowToolbar.tsx
 <button onClick={async () => {
-    await OpenRepairConversation(workflowId)
+    await fetch(`http://127.0.0.1:${port}/api/workflows/${workflowId}/repair-conversation`, { method: 'POST' })
     // OpenConversation 事件会让前端切换到对话侧
 }} className="text-xs underline text-red-300">
     通过对话修复

@@ -169,16 +169,12 @@ func (r *ToolRunner) Run(ctx context.Context, node FlowNode, input map[string]an
 
 ---
 
-## 6. Wails Bindings（设置页）
+## 6. HTTP API 路由（设置页）
 
 ```go
-func (a *App) ListGrantedPermissions() ([]*service.ToolPermission, error) {
-    return a.permSvc.List()
-}
-
-func (a *App) RevokePermission(toolName string) error {
-    return a.permSvc.Revoke(toolName)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/permissions", s.listGrantedPermissions)
+mux.HandleFunc("DELETE /api/permissions/{toolName}", s.revokePermission)
 ```
 
 ---

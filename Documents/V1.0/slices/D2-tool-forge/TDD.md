@@ -302,31 +302,12 @@ export function TestParamsModal({ toolId, onClose }: { toolId: string; onClose: 
 
 ---
 
-## 6. Wails Bindings
+## 6. HTTP API 路由
 
 ```go
-// app.go
-func (a *App) GetTool(id string) (*service.Tool, error) {
-    return a.toolSvc.Get(id)
-}
-
-func (a *App) RunTool(toolID string, params map[string]any) error {
-    tool, err := a.toolSvc.Get(toolID)
-    if err != nil { return err }
-
-    result, err := a.executor.Run(context.Background(), tool, params)
-    passed := err == nil
-
-    // 保存测试结果
-    a.toolSvc.UpdateTestResult(toolID, passed)
-
-    // 发送测试结果事件（ToolTestResultCard）
-    a.bridge.Emit(events.ToolTestResult, map[string]any{
-        "toolId": toolID, "passed": passed,
-        "output": result, "error": errMsg(err),
-    })
-    return nil
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/tools/{id}", s.getTool)
+mux.HandleFunc("POST /api/tools/{id}/run", s.runTool)
 ```
 
 ---

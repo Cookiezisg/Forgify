@@ -250,37 +250,19 @@ interface ChatTitleUpdatedPayload {
 
 ---
 
-## 6. Wails Bindings
+## 6. HTTP API 路由
 
 ```go
-// app.go
-func (a *App) CreateConversation() (*service.Conversation, error) {
-    return a.conversationSvc.Create()
-}
-func (a *App) ListConversations() ([]*service.Conversation, error) {
-    return a.conversationSvc.List()
-}
-func (a *App) ListConversationsByAsset(assetID string) ([]*service.Conversation, error) {
-    return a.conversationSvc.ListByAsset(assetID)
-}
-func (a *App) RenameConversation(id, title string) error {
-    return a.conversationSvc.Rename(id, title)
-}
-func (a *App) BindConversation(id, assetID, assetType string) error {
-    return a.conversationSvc.Bind(id, assetID, assetType)
-}
-func (a *App) UnbindConversation(id string) error {
-    return a.conversationSvc.Unbind(id)
-}
-func (a *App) ArchiveConversation(id string) error {
-    return a.conversationSvc.Archive(id)
-}
-func (a *App) DeleteConversation(id string) error {
-    return a.conversationSvc.Delete(id)
-}
-func (a *App) SearchConversations(query string) ([]*service.Conversation, error) {
-    return a.conversationSvc.Search(query)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/conversations", s.listConversations)
+mux.HandleFunc("POST /api/conversations", s.createConversation)
+mux.HandleFunc("GET /api/conversations/search", s.searchConversations)
+mux.HandleFunc("GET /api/conversations/by-asset/{assetId}", s.listConversationsByAsset)
+mux.HandleFunc("PATCH /api/conversations/{id}/rename", s.renameConversation)
+mux.HandleFunc("PATCH /api/conversations/{id}/bind", s.bindConversation)
+mux.HandleFunc("PATCH /api/conversations/{id}/unbind", s.unbindConversation)
+mux.HandleFunc("PATCH /api/conversations/{id}/archive", s.archiveConversation)
+mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
 ```
 
 ---
@@ -295,7 +277,7 @@ export function ConversationSidebar() {
     const [query, setQuery] = useState('')
     const [activeId, setActiveId] = useState<string | null>(null)
 
-    const load = () => ListConversations().then(setConversations)
+    const load = () => fetch(`http://127.0.0.1:${port}/api/conversations`).then(r => r.json()).then(setConversations)
     useEffect(() => { load() }, [])
 
     // 监听 chat.title_updated 事件，实时更新标题

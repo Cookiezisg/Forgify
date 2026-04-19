@@ -224,16 +224,11 @@ func ResolveConfig(config map[string]any, ctx map[string]any) map[string]any {
 
 ---
 
-## 6. Wails Binding：编译校验
+## 6. HTTP API 路由：编译校验
 
 ```go
-// app.go
-func (a *App) ValidateWorkflow(id string) ([]compiler.CompileError, error) {
-    wf, err := a.workflowSvc.Get(id)
-    if err != nil { return nil, err }
-    result := compiler.Compile(wf.Definition, a.toolSvc)
-    return result.Errors, nil
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("POST /api/workflows/{id}/validate", s.validateWorkflow)
 ```
 
 前端在工具栏"运行"按钮渲染时调用，展示错误并置灰按钮：
@@ -243,7 +238,8 @@ func (a *App) ValidateWorkflow(id string) ([]compiler.CompileError, error) {
 const [errors, setErrors] = useState<CompileError[]>([])
 
 useEffect(() => {
-    ValidateWorkflow(workflowId).then(setErrors)
+    fetch(`http://127.0.0.1:${port}/api/workflows/${workflowId}/validate`, { method: 'POST' })
+        .then(r => r.json()).then(setErrors)
 }, [workflowDefinition]) // definition 变化时重新校验
 
 const hasErrors = errors.length > 0

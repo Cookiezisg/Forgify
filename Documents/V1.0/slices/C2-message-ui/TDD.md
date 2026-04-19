@@ -265,12 +265,11 @@ export function ToolCreatedCard({ meta }: { meta: ToolCreatedMeta }) {
 
 ---
 
-## 5. Wails Bindings
+## 5. HTTP API 路由
 
 ```go
-func (a *App) ListMessages(conversationID string) ([]*service.Message, error) {
-    return a.messageSvc.List(conversationID)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/conversations/{id}/messages", s.listMessages)
 ```
 
 ---

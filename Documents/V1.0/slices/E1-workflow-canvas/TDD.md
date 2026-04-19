@@ -175,17 +175,14 @@ func (s *WorkflowService) Rename(id, name string) error {
 
 ---
 
-## 6. Wails Bindings
+## 6. HTTP API 路由
 
 ```go
-func (a *App) ListWorkflows() ([]*service.Workflow, error) { return a.workflowSvc.List() }
-func (a *App) GetWorkflow(id string) (*service.Workflow, error) { return a.workflowSvc.Get(id) }
-func (a *App) UpdateWorkflowDefinition(id string, def json.RawMessage) error {
-    if err := a.workflowSvc.UpdateDefinition(id, def); err != nil { return err }
-    a.bridge.Emit(events.CanvasUpdated, map[string]any{"workflowId": id})
-    return nil
-}
-func (a *App) RenameWorkflow(id, name string) error { return a.workflowSvc.Rename(id, name) }
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/workflows", s.listWorkflows)
+mux.HandleFunc("GET /api/workflows/{id}", s.getWorkflow)
+mux.HandleFunc("PUT /api/workflows/{id}/definition", s.updateWorkflowDefinition)
+mux.HandleFunc("PATCH /api/workflows/{id}/rename", s.renameWorkflow)
 ```
 
 ---

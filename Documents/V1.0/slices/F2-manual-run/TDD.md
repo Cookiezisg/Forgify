@@ -204,24 +204,13 @@ export function RunParamsDialog({ schema, onRun, onCancel }: {
 
 ---
 
-## 7. Wails Bindings
+## 7. HTTP API 路由
 
 ```go
-func (a *App) RunWorkflow(id string, params map[string]any) (string, error) {
-    // 防止重复运行
-    if a.runner.IsRunning(id) {
-        return "", fmt.Errorf("运行中，请等待完成")
-    }
-    return a.runner.Run(context.Background(), id, params)
-}
-
-func (a *App) GetRunResult(runID string) (*service.RunResult, error) {
-    return a.runSvc.GetResult(runID)
-}
-
-func (a *App) GetNodeResult(runID, nodeID string) (*service.NodeResult, error) {
-    return a.runSvc.GetNodeResult(runID, nodeID)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("POST /api/workflows/{id}/run", s.runWorkflow)
+mux.HandleFunc("GET /api/runs/{runId}", s.getRunResult)
+mux.HandleFunc("GET /api/runs/{runId}/nodes/{nodeId}", s.getNodeResult)
 ```
 
 ---

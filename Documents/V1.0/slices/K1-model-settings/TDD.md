@@ -116,23 +116,13 @@ func (s *SettingsService) TestModelConnection(config ModelConfig) (bool, string,
 
 ---
 
-## 4. Wails Bindings
+## 4. HTTP API 路由
 
 ```go
-func (a *App) GetModelSettings() (*service.ModelSettings, error) {
-    return a.settingsSvc.GetModelSettings()
-}
-
-func (a *App) SaveModelSettings(ms service.ModelSettings) error {
-    if err := a.settingsSvc.SaveModelSettings(&ms); err != nil { return err }
-    // 刷新 LLM 客户端
-    a.chatSvc.RefreshLLMClients(&ms)
-    return nil
-}
-
-func (a *App) TestModelConnection(config service.ModelConfig) (bool, string, error) {
-    return a.settingsSvc.TestModelConnection(config)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/settings/model", s.getModelSettings)
+mux.HandleFunc("POST /api/settings/model", s.saveModelSettings)
+mux.HandleFunc("POST /api/settings/model/test", s.testModelConnection)
 ```
 
 ---
@@ -145,11 +135,16 @@ export function ModelSettingsPage() {
     const [settings, setSettings] = useState<ModelSettings | null>(null)
     const [testResults, setTestResults] = useState<Record<string, string>>({})
 
-    useEffect(() => { GetModelSettings().then(setSettings) }, [])
+    useEffect(() => {
+        fetch(`http://127.0.0.1:${port}/api/settings/model`).then(r => r.json()).then(setSettings)
+    }, [])
 
     const handleTest = async (key: string, config: ModelConfig) => {
-        const [ok, msg] = await TestModelConnection(config)
-        setTestResults(r => ({ ...r, [key]: ok ? `✓ ${msg}` : `✗ 连接失败` }))
+        const res = await fetch(`http://127.0.0.1:${port}/api/settings/model/test`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config),
+        }).then(r => r.json())
+        setTestResults(r => ({ ...r, [key]: res.ok ? `✓ ${res.message}` : `✗ 连接失败` }))
     }
 
     if (!settings) return null

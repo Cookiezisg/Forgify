@@ -196,7 +196,9 @@ forgify/
     │   │   └── inbox/           # I1-I3：Inbox
     │   ├── hooks/
     │   │   └── useChat.ts       # B2：流式消息
-    │   └── wailsjs/             # Wails 自动生成的 JS bindings
+    │   └── lib/
+    │       ├── backend.ts       # 后端端口管理
+    │       └── events.ts        # SSE EventSource 封装
     ├── package.json
     └── vite.config.ts
 ```

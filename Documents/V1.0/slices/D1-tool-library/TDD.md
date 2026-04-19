@@ -182,17 +182,12 @@ func (s *ToolService) scan(query string, args ...any) ([]*Tool, error) {
 
 ---
 
-## 4. Wails Bindings
+## 4. HTTP API 路由
 
 ```go
-// app.go
-func (a *App) ListTools(category, query string) ([]*service.Tool, error) {
-    return a.toolSvc.List(category, query)
-}
-
-func (a *App) DeleteTool(id string) error {
-    return a.toolSvc.Delete(id)
-}
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/tools", s.listTools)
+mux.HandleFunc("DELETE /api/tools/{id}", s.deleteTool)
 ```
 
 ---
@@ -210,7 +205,7 @@ export function ToolLibrary() {
     const [query, setQuery] = useState('')
 
     useEffect(() => {
-        ListTools(category, query).then(setTools)
+        fetch(`http://127.0.0.1:${port}/api/tools?category=${category}&q=${query}`).then(r => r.json()).then(setTools)
     }, [category, query])
 
     return (

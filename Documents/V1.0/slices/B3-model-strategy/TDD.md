@@ -218,13 +218,13 @@ if errors.As(err, &fallbackErr) {
 
 ---
 
-## 4. 前端 Bindings
+## 4. HTTP API 路由
 
 ```go
-// app.go
-func (a *App) GetModelConfig() (*model.ModelConfig, error) { ... }
-func (a *App) SaveModelConfig(cfg model.ModelConfig) error { ... }
-func (a *App) ListAvailableModels(provider string) ([]model.ModelInfo, error) { ... }
+// backend/internal/server/routes.go
+mux.HandleFunc("GET /api/model-config", s.getModelConfig)
+mux.HandleFunc("POST /api/model-config", s.saveModelConfig)
+mux.HandleFunc("GET /api/models", s.listAvailableModels)
 ```
 
 ---
@@ -233,8 +233,8 @@ func (a *App) ListAvailableModels(provider string) ([]model.ModelInfo, error) { 
 
 ```tsx
 // 展示四行 Select：主对话、代码生成、低成本、备用
-// 选项来自 ListAvailableModels()（已配置 Key 的提供商的模型）
-// 保存调用 SaveModelConfig()
+// 选项来自 GET /api/models（已配置 Key 的提供商的模型）
+// 保存调用 POST /api/model-config
 ```
 
 ---

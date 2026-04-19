@@ -1,5 +1,6 @@
 import { Home, MessageCircle, Zap, Inbox, Settings } from "lucide-react";
 import { useInbox } from "../context/InboxContext";
+import { useT } from "../lib/i18n";
 
 export type Tab = "home" | "chat" | "assets" | "inbox" | "settings";
 
@@ -8,16 +9,17 @@ interface SidebarNavProps {
   onSelect: (tab: Tab) => void;
 }
 
-const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: "home",     icon: <Home size={16} strokeWidth={1.6} />,          label: "首页" },
-  { id: "chat",     icon: <MessageCircle size={16} strokeWidth={1.6} />, label: "对话" },
-  { id: "assets",   icon: <Zap size={16} strokeWidth={1.6} />,           label: "资产" },
-  { id: "inbox",    icon: <Inbox size={16} strokeWidth={1.6} />,         label: "收件箱" },
-  { id: "settings", icon: <Settings size={16} strokeWidth={1.6} />,      label: "设置" },
-];
-
 export function SidebarNav({ active, onSelect }: SidebarNavProps) {
   const { unreadCount } = useInbox();
+  const t = useT();
+
+  const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
+    { id: "home",     icon: <Home size={16} strokeWidth={1.6} />,          label: t("nav.home") },
+    { id: "chat",     icon: <MessageCircle size={16} strokeWidth={1.6} />, label: t("nav.chat") },
+    { id: "assets",   icon: <Zap size={16} strokeWidth={1.6} />,           label: t("nav.assets") },
+    { id: "inbox",    icon: <Inbox size={16} strokeWidth={1.6} />,         label: t("nav.inbox") },
+    { id: "settings", icon: <Settings size={16} strokeWidth={1.6} />,      label: t("nav.settings") },
+  ];
 
   return (
     <div style={{

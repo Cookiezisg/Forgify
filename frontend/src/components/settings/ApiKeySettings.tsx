@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Check, X, ChevronRight, Loader } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useT } from '@/lib/i18n'
 
 interface APIKey {
   id: string
@@ -27,6 +28,7 @@ const PROVIDERS = [
 ]
 
 export function ApiKeySettings() {
+  const t = useT()
   const [keys, setKeys] = useState<APIKey[]>([])
   const [drawer, setDrawer] = useState<{ provider: string; id?: string } | null>(null)
 
@@ -39,7 +41,7 @@ export function ApiKeySettings() {
   return (
     <div>
       <p style={{ fontSize: 11, fontWeight: 600, color: '#9b9a97', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
-        API Keys
+        {t('settings.apiKeysSection')}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {PROVIDERS.map((p) => {
@@ -80,11 +82,11 @@ export function ApiKeySettings() {
                         color: existing.testStatus === 'ok' ? '#16a34a' : existing.testStatus === 'error' ? '#dc2626' : '#6b7280',
                       }}
                     >
-                      {existing.testStatus === 'ok' ? '✓ 正常' : existing.testStatus === 'error' ? '✗ 异常' : '已配置'}
+                      {existing.testStatus === 'ok' ? t('apikey.statusOk') : existing.testStatus === 'error' ? t('apikey.statusError') : t('apikey.statusConfigured')}
                     </span>
                   </>
                 ) : (
-                  <span style={{ fontSize: 12, color: '#c7c7c5' }}>未配置</span>
+                  <span style={{ fontSize: 12, color: '#c7c7c5' }}>{t('apikey.notConfigured')}</span>
                 )}
                 <ChevronRight size={14} strokeWidth={1.5} style={{ color: '#d1d5db' }} />
               </div>
@@ -115,6 +117,7 @@ function APIKeyDrawer({
   onClose: () => void
   onSaved: () => void
 }) {
+  const t = useT()
   const info = PROVIDERS.find((p) => p.id === provider)!
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -170,7 +173,7 @@ function APIKeyDrawer({
       onSaved()
       onClose()
     } catch (e) {
-      alert('保存失败: ' + String(e))
+      alert(t('apikey.saveFailed') + String(e))
     } finally {
       setSaving(false)
     }
@@ -178,7 +181,7 @@ function APIKeyDrawer({
 
   const handleDelete = async () => {
     if (!existingId) return
-    if (!confirm('确定删除此 API Key？')) return
+    if (!confirm(t('apikey.confirmDelete'))) return
     await api(`/api/api-keys/${existingId}`, { method: 'DELETE' }).catch(() => {})
     onSaved()
     onClose()
@@ -205,7 +208,7 @@ function APIKeyDrawer({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>配置 {info.name}</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>{t('apikey.configure')} {info.name}</span>
           <button
             onClick={onClose}
             style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9b9a97', padding: 4 }}
@@ -217,13 +220,13 @@ function APIKeyDrawer({
         {info.needsKey && (
           <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>
-              API Key
+              {t('apikey.keyLabel')}
             </label>
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="粘贴 API Key…"
+              placeholder={t('apikey.pasteKey')}
               style={{
                 width: '100%', padding: '8px 10px', fontSize: 13,
                 border: '1px solid #e5e7eb', borderRadius: 6, outline: 'none',
@@ -236,7 +239,7 @@ function APIKeyDrawer({
         {info.needsUrl && (
           <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>
-              Base URL {!info.needsKey && '（必填）'}
+              {t('apikey.urlLabel')} {!info.needsKey && t('apikey.required')}
             </label>
             <input
               type="text"
@@ -263,7 +266,7 @@ function APIKeyDrawer({
           }}
         >
           {testing ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-          测试连接
+          {t('apikey.testConnection')}
         </button>
 
         {testResult && (
@@ -293,7 +296,7 @@ function APIKeyDrawer({
               color: saving || (info.needsKey && !apiKey) ? '#9b9a97' : 'white',
             }}
           >
-            {saving ? '保存中…' : '保存'}
+            {saving ? t('apikey.saving') : t('apikey.save')}
           </button>
           {existingId && (
             <button
@@ -303,7 +306,7 @@ function APIKeyDrawer({
                 border: '1px solid #fca5a5', background: 'white', color: '#dc2626', cursor: 'pointer',
               }}
             >
-              删除
+              {t('apikey.delete')}
             </button>
           )}
         </div>

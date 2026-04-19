@@ -2,12 +2,14 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage } from '@/hooks/useChat'
+import { useT } from '@/lib/i18n'
 
 interface Props {
   message: ChatMessage
 }
 
 export function MessageItem({ message }: Props) {
+  const t = useT()
   const isUser = message.role === 'user'
   const isError = message.status === 'error'
   const isStreaming = message.status === 'streaming'
@@ -39,7 +41,7 @@ export function MessageItem({ message }: Props) {
       <div style={{ maxWidth: '88%', minWidth: 0 }}>
         {/* AI label */}
         <div style={{ fontSize: 11, color: '#9b9a97', marginBottom: 4, fontWeight: 500 }}>
-          Forgify AI
+          {t('chat.forgifyAI')}
         </div>
 
         {isError ? (
@@ -51,7 +53,7 @@ export function MessageItem({ message }: Props) {
               padding: '6px 0',
             }}
           >
-            {message.content || '发生错误'}
+            {message.content || t('chat.errorOccurred')}
           </div>
         ) : isStreaming && message.content === '' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 0' }}>

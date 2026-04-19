@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { useChat } from '@/hooks/useChat'
 import { MessageList } from '@/components/chat/MessageList'
 import { ChatInput } from '@/components/chat/ChatInput'
+import { useT } from '@/lib/i18n'
 
 interface Conversation {
   id: string
@@ -12,6 +13,7 @@ interface Conversation {
 }
 
 export function ChatLeftPanel() {
+  const t = useT()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -70,13 +72,13 @@ export function ChatLeftPanel() {
           onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
         >
           <Plus size={14} strokeWidth={2} />
-          新建对话
+          {t('chat.newChat')}
         </button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
         {conversations.length === 0 ? (
-          <p style={{ fontSize: 12, color: '#9b9a97', padding: '8px 10px' }}>暂无对话</p>
+          <p style={{ fontSize: 12, color: '#9b9a97', padding: '8px 10px' }}>{t('chat.noChats')}</p>
         ) : (
           conversations.map((c) => (
             <div
@@ -132,6 +134,7 @@ export function ChatLeftPanel() {
 }
 
 export function ChatContent() {
+  const t = useT()
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [hasKeys, setHasKeys] = useState<boolean | null>(null)
 
@@ -154,17 +157,17 @@ export function ChatContent() {
   if (!activeConversationId) {
     return (
       <div className="flex flex-col items-center justify-center h-full" style={{ gap: 8 }}>
-        <p style={{ fontSize: 16, fontWeight: 500, color: '#374151' }}>选择或新建一个对话</p>
+        <p style={{ fontSize: 16, fontWeight: 500, color: '#374151' }}>{t('chat.selectOrNew')}</p>
         {hasKeys === false && (
           <p style={{ fontSize: 13, color: '#9b9a97' }}>
-            提示：先在{' '}
+            {t('chat.configureKeyHint')}{' '}
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'settings' }))}
               style={{ color: '#2383e2', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0 }}
             >
-              设置页
+              {t('chat.settingsLink')}
             </button>
-            {' '}配置 API Key 才能开始对话
+            {' '}{t('chat.configureKeyHint2')}
           </p>
         )}
       </div>

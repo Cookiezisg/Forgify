@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { ArrowUp, Square } from 'lucide-react'
+import { useT } from '@/lib/i18n'
 
 interface Props {
   isStreaming: boolean
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
+  const t = useT()
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -48,7 +50,6 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
         background: 'white',
       }}
     >
-      {/* Container: position:relative so button can be absolute */}
       <div
         style={{
           position: 'relative',
@@ -71,7 +72,7 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
           value={text}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder={disabled ? '请先配置 API Key 和模型' : '输入消息…'}
+          placeholder={disabled ? t('chat.disabledHint') : t('chat.placeholder')}
           disabled={disabled}
           rows={1}
           style={{
@@ -82,17 +83,16 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
             outline: 'none',
             resize: 'none',
             fontSize: 14,
-            lineHeight: '24px',        // fixed line height for predictability
+            lineHeight: '24px',
             color: '#1a1a1a',
             fontFamily: 'inherit',
             maxHeight: 200,
             overflowY: 'auto',
             boxSizing: 'border-box',
-            padding: '10px 46px 10px 14px',  // right padding leaves room for button
+            padding: '10px 46px 10px 14px',
           }}
         />
 
-        {/* Button: absolute, always sticks to bottom-right */}
         <button
           onClick={isStreaming ? onStop : handleSend}
           disabled={!btnActive}
@@ -126,7 +126,7 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
       </div>
 
       <p style={{ fontSize: 11, color: '#c7c7c5', textAlign: 'center', marginTop: 6 }}>
-        Shift+Enter 换行 · AI 可能会出错，请核实重要信息
+        {t('chat.shiftEnterHint')} · {t('chat.disclaimer')}
       </p>
     </div>
   )

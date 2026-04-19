@@ -1,7 +1,7 @@
 # Forgify 开发进度
 
 **更新于**：2026-04-19  
-**当前状态**：文档阶段完成，准备开始写代码
+**当前状态**：Tier 1 完成，开始 Tier 2
 
 ---
 
@@ -22,9 +22,9 @@
 
 | 切片 | 描述 | 状态 | 备注 |
 |---|---|---|---|
-| **A1** App Shell | Electron 项目初始化，侧边栏四 Tab，SplitView | ⬜ | 先跑起来一个空壳 |
-| **A2** Data Layer | SQLite 连接，001-012 迁移自动执行 | ⬜ | 所有表一次性建好 |
-| **A3** Event System | EventBridge，events 常量定义 | ⬜ | 先定义好所有 Event 名 |
+| **A1** App Shell | Electron 项目初始化，侧边栏四 Tab，SplitView | ✅ | |
+| **A2** Data Layer | SQLite 连接，001-012 迁移自动执行 | ✅ | |
+| **A3** Event System | EventBridge，events 常量定义 | ✅ | |
 
 ---
 
@@ -157,4 +157,4 @@ H2 → H1, I1, I2, I3
 | 日期 | 内容 |
 |---|---|
 | 2026-04-19 | PRD v0.3 + TDD v0.3 + 38 个切片文档全部完成 |
-| | |
+| 2026-04-19 | A1+A2+A3 完成：Electron + Go HTTP subprocess，SSE 事件系统，SQLite 迁移 |

@@ -1,7 +1,7 @@
-import { Home, MessageCircle, Zap, Inbox } from "lucide-react";
+import { Home, MessageCircle, Zap, Inbox, Settings } from "lucide-react";
 import { useInbox } from "../context/InboxContext";
 
-export type Tab = "home" | "chat" | "assets" | "inbox";
+export type Tab = "home" | "chat" | "assets" | "inbox" | "settings";
 
 interface SidebarNavProps {
   active: Tab;
@@ -9,10 +9,11 @@ interface SidebarNavProps {
 }
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: "home",   icon: <Home size={16} strokeWidth={1.6} />,          label: "首页" },
-  { id: "chat",   icon: <MessageCircle size={16} strokeWidth={1.6} />, label: "对话" },
-  { id: "assets", icon: <Zap size={16} strokeWidth={1.6} />,           label: "资产" },
-  { id: "inbox",  icon: <Inbox size={16} strokeWidth={1.6} />,         label: "收件箱" },
+  { id: "home",     icon: <Home size={16} strokeWidth={1.6} />,          label: "首页" },
+  { id: "chat",     icon: <MessageCircle size={16} strokeWidth={1.6} />, label: "对话" },
+  { id: "assets",   icon: <Zap size={16} strokeWidth={1.6} />,           label: "资产" },
+  { id: "inbox",    icon: <Inbox size={16} strokeWidth={1.6} />,         label: "收件箱" },
+  { id: "settings", icon: <Settings size={16} strokeWidth={1.6} />,      label: "设置" },
 ];
 
 export function SidebarNav({ active, onSelect }: SidebarNavProps) {

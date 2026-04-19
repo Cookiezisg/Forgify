@@ -5,6 +5,7 @@ import { HomeLeftPanel, HomeContent } from "./pages/HomePage";
 import { ChatLeftPanel, ChatContent } from "./pages/ChatPage";
 import { AssetsLeftPanel, AssetsContent } from "./pages/AssetsPage";
 import { InboxLeftPanel, InboxContent } from "./pages/InboxPage";
+import { SettingsLeftPanel, SettingsContent } from "./pages/SettingsPage";
 
 const TITLE_BAR_HEIGHT = 40;
 const SIDEBAR_DEFAULT = 280;
@@ -13,19 +14,21 @@ const SIDEBAR_MAX = 450;
 
 function LeftPanel({ tab }: { tab: Tab }) {
   switch (tab) {
-    case "home":   return <HomeLeftPanel />;
-    case "chat":   return <ChatLeftPanel />;
-    case "assets": return <AssetsLeftPanel />;
-    case "inbox":  return <InboxLeftPanel />;
+    case "home":     return <HomeLeftPanel />;
+    case "chat":     return <ChatLeftPanel />;
+    case "assets":   return <AssetsLeftPanel />;
+    case "inbox":    return <InboxLeftPanel />;
+    case "settings": return <SettingsLeftPanel />;
   }
 }
 
 function MainContent({ tab }: { tab: Tab }) {
   switch (tab) {
-    case "home":   return <HomeContent />;
-    case "chat":   return <ChatContent />;
-    case "assets": return <AssetsContent />;
-    case "inbox":  return <InboxContent />;
+    case "home":     return <HomeContent />;
+    case "chat":     return <ChatContent />;
+    case "assets":   return <AssetsContent />;
+    case "inbox":    return <InboxContent />;
+    case "settings": return <SettingsContent />;
   }
 }
 
@@ -40,6 +43,15 @@ function App() {
       setTitleBarHeight(isFullscreen ? 0 : TITLE_BAR_HEIGHT);
     });
     return () => unsubscribe?.();
+  }, []);
+
+  // Allow other components to navigate via custom events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setActiveTab((e as CustomEvent).detail as Tab);
+    };
+    window.addEventListener("nav:goTo", handler);
+    return () => window.removeEventListener("nav:goTo", handler);
   }, []);
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {

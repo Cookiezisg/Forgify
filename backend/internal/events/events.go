@@ -1,11 +1,12 @@
 package events
 
-// Event name constants
 const (
 	ChatToken     = "chat.token"
 	ChatDone      = "chat.done"
 	ChatError     = "chat.error"
 	ChatCompacted = "chat.compacted"
+
+	Notification = "notification"
 
 	NodeStatusChanged = "node.status_changed"
 	NodeOutput        = "node.output"
@@ -24,7 +25,6 @@ const (
 	OpenConversation = "open.conversation"
 )
 
-// Bridge lets business logic emit events to the SSE broker.
 type Bridge struct {
 	publish func(event string, payload any)
 }

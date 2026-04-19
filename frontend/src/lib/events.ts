@@ -1,8 +1,11 @@
 // SSE-based event system — replaces @wailsio/runtime Events
 
+import { setBackendPort } from './api'
+
 let source: EventSource | null = null;
 
 export function initBackend(port: number): void {
+  setBackendPort(port)
   if (source) source.close();
   source = new EventSource(`http://127.0.0.1:${port}/events`);
 }
@@ -12,6 +15,7 @@ export const EventNames = {
   ChatDone:           "chat.done",
   ChatError:          "chat.error",
   ChatCompacted:      "chat.compacted",
+  Notification:       "notification",
   NodeStatusChanged:  "node.status_changed",
   NodeOutput:         "node.output",
   RunCompleted:       "run.completed",

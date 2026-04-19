@@ -32,10 +32,10 @@
 
 | 切片 | 描述 | 状态 | 备注 |
 |---|---|---|---|
-| **B1** API Key Management | API Key 存储，UI 管理 | ⬜ | |
-| **K1** Model Settings | 模型配置，连接测试 | ⬜ | 和 B1 一起做，先能选模型 |
-| **B2** Streaming Core | Eino ConversationAgent，流式 token | ⬜ | 核心 AI 调用 |
-| **B3** Model Strategy | 多模型切换策略 | ⬜ | 可以最后再做 |
+| **B1** API Key Management | API Key 存储，UI 管理 | ✅ | |
+| **K1** Model Settings | 模型配置，连接测试 | ✅ | 和 B1 一起做，先能选模型 |
+| **B2** Streaming Core | Eino ConversationAgent，流式 token | ✅ | 核心 AI 调用 |
+| **B3** Model Strategy | 多模型切换策略 | ✅ | 可以最后再做 |
 
 ---
 
@@ -158,3 +158,4 @@ H2 → H1, I1, I2, I3
 |---|---|
 | 2026-04-19 | PRD v0.3 + TDD v0.3 + 38 个切片文档全部完成 |
 | 2026-04-19 | A1+A2+A3 完成：Electron + Go HTTP subprocess，SSE 事件系统，SQLite 迁移 |
+| 2026-04-20 | B1+K1+B2+B3 完成：API Key 加密存储，模型设置，Eino 流式对话，模型降级策略 |

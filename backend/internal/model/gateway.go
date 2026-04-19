@@ -9,12 +9,11 @@ import (
 	claudemodel "github.com/cloudwego/eino-ext/components/model/claude"
 	openaimodel "github.com/cloudwego/eino-ext/components/model/openai"
 	einomodel "github.com/cloudwego/eino/components/model"
+
 	"github.com/sunweilin/forgify/internal/events"
 )
 
-var (
-	ErrNoModelConfigured = errors.New("no model configured; go to Settings → 模型设置")
-)
+var ErrNoModelConfigured = errors.New("no model configured; go to Settings → 模型设置")
 
 type ErrUsedFallback struct {
 	Primary  string
@@ -67,34 +66,21 @@ func (g *ModelGateway) GetModel(ctx context.Context, purpose ModelPurpose) (eino
 }
 
 func (g *ModelGateway) buildModel(ctx context.Context, a ModelAssignment) (einomodel.ToolCallingChatModel, error) {
-	key, baseURL, err := g.getKey(a.Provider)
+	key, configuredURL, err := g.getKey(a.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("no key for %s: %w", a.Provider, err)
 	}
 
 	switch a.Provider {
 	case "anthropic":
-		maxTokens := 4096
 		return claudemodel.NewChatModel(ctx, &claudemodel.Config{
 			APIKey:    key,
 			Model:     a.ModelID,
-			MaxTokens: maxTokens,
+			MaxTokens: 4096,
 		})
-	case "openai", "deepseek", "moonshot", "openai_compat":
-		if baseURL == "" {
-			switch a.Provider {
-			case "deepseek":
-				baseURL = "https://api.deepseek.com/v1"
-			case "moonshot":
-				baseURL = "https://api.moonshot.cn/v1"
-			}
-		}
-		return openaimodel.NewChatModel(ctx, &openaimodel.ChatModelConfig{
-			APIKey:  key,
-			Model:   a.ModelID,
-			BaseURL: baseURL,
-		})
+
 	case "ollama":
+		baseURL := configuredURL
 		if baseURL == "" {
 			baseURL = "http://localhost:11434/v1"
 		}
@@ -103,8 +89,19 @@ func (g *ModelGateway) buildModel(ctx context.Context, a ModelAssignment) (einom
 			Model:   a.ModelID,
 			BaseURL: baseURL,
 		})
+
 	default:
-		return nil, fmt.Errorf("unknown provider: %s", a.Provider)
+		// All other providers use OpenAI-compatible API.
+		// Priority: key stored base_url > ProviderBaseURLs default > empty (uses openai default)
+		baseURL := configuredURL
+		if baseURL == "" {
+			baseURL = ProviderBaseURLs[a.Provider]
+		}
+		return openaimodel.NewChatModel(ctx, &openaimodel.ChatModelConfig{
+			APIKey:  key,
+			Model:   a.ModelID,
+			BaseURL: baseURL,
+		})
 	}
 }
 

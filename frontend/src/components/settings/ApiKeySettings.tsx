@@ -12,12 +12,18 @@ interface APIKey {
 }
 
 const PROVIDERS = [
-  { id: 'anthropic', name: 'Anthropic', subtitle: 'Claude', needsKey: true, needsUrl: false },
-  { id: 'openai', name: 'OpenAI', subtitle: 'GPT-4o, o3', needsKey: true, needsUrl: false },
-  { id: 'openai_compat', name: 'OpenAI 兼容', subtitle: '自定义端点', needsKey: true, needsUrl: true },
-  { id: 'deepseek', name: 'DeepSeek', subtitle: 'DeepSeek V3/R1', needsKey: true, needsUrl: false },
-  { id: 'moonshot', name: 'Moonshot (Kimi)', subtitle: 'moonshot-v1', needsKey: true, needsUrl: false },
-  { id: 'ollama', name: 'Ollama', subtitle: '本地模型', needsKey: false, needsUrl: true },
+  { id: 'anthropic',   name: 'Anthropic',        subtitle: 'Claude Opus/Sonnet/Haiku',  needsKey: true,  needsUrl: false },
+  { id: 'openai',      name: 'OpenAI',            subtitle: 'GPT-4o, o3-mini',           needsKey: true,  needsUrl: false },
+  { id: 'deepseek',    name: 'DeepSeek',          subtitle: 'DeepSeek V3/R1',            needsKey: true,  needsUrl: false },
+  { id: 'siliconflow', name: 'SiliconFlow 硅基流动', subtitle: '聚合模型，性价比高',       needsKey: true,  needsUrl: false },
+  { id: 'groq',        name: 'Groq',              subtitle: 'Llama / Mixtral（极速）',   needsKey: true,  needsUrl: false },
+  { id: 'mistral',     name: 'Mistral AI',        subtitle: 'Mistral Large / Codestral', needsKey: true,  needsUrl: false },
+  { id: 'gemini',      name: 'Google Gemini',     subtitle: 'Gemini 2.0 Flash/Pro',      needsKey: true,  needsUrl: false },
+  { id: 'moonshot',    name: 'Moonshot (Kimi)',   subtitle: 'moonshot-v1',               needsKey: true,  needsUrl: false },
+  { id: 'zhipu',       name: '智谱 (GLM)',         subtitle: 'GLM-4 Plus/Flash',          needsKey: true,  needsUrl: false },
+  { id: 'openrouter',  name: 'OpenRouter',        subtitle: '100+ 模型聚合',             needsKey: true,  needsUrl: false },
+  { id: 'ollama',      name: 'Ollama',            subtitle: '本地模型',                  needsKey: false, needsUrl: true  },
+  { id: 'openai_compat', name: 'OpenAI 兼容',    subtitle: '自定义端点',                needsKey: true,  needsUrl: true  },
 ]
 
 export function ApiKeySettings() {

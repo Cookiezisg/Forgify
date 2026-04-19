@@ -37,33 +37,32 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
     el.style.height = Math.min(el.scrollHeight, 200) + 'px'
   }
 
+  const canSend = !disabled && !isStreaming && !!text.trim()
+  const btnActive = canSend || isStreaming
+
   return (
     <div
       style={{
         borderTop: '1px solid #e5e7eb',
-        padding: '12px 16px',
+        padding: '12px 16px 10px',
         background: 'white',
       }}
     >
+      {/* Container: position:relative so button can be absolute */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'flex-end',
-          gap: 8,
+          position: 'relative',
           background: '#f9f9f8',
           border: '1px solid #e5e7eb',
-          borderRadius: 10,
-          padding: '8px 10px',
+          borderRadius: 12,
           transition: 'border-color 150ms',
         }}
-        onFocus={(e) => {
-          const parent = e.currentTarget
-          parent.style.borderColor = '#c7c7c5'
+        onFocusCapture={(e) => {
+          e.currentTarget.style.borderColor = '#c7c7c5'
         }}
-        onBlur={(e) => {
-          const parent = e.currentTarget
+        onBlurCapture={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) {
-            parent.style.borderColor = '#e5e7eb'
+            e.currentTarget.style.borderColor = '#e5e7eb'
           }
         }}
       >
@@ -72,60 +71,62 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
           value={text}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder={disabled ? '请先配置 API Key 和模型' : '输入消息… (Shift+Enter 换行)'}
+          placeholder={disabled ? '请先配置 API Key 和模型' : '输入消息…'}
           disabled={disabled}
           rows={1}
           style={{
-            flex: 1,
+            display: 'block',
+            width: '100%',
             background: 'transparent',
             border: 'none',
             outline: 'none',
             resize: 'none',
             fontSize: 14,
-            lineHeight: '1.5',
+            lineHeight: '24px',        // fixed line height for predictability
             color: '#1a1a1a',
             fontFamily: 'inherit',
             maxHeight: 200,
             overflowY: 'auto',
+            boxSizing: 'border-box',
+            padding: '10px 46px 10px 14px',  // right padding leaves room for button
           }}
         />
+
+        {/* Button: absolute, always sticks to bottom-right */}
         <button
           onClick={isStreaming ? onStop : handleSend}
-          disabled={disabled || (!isStreaming && !text.trim())}
+          disabled={!btnActive}
           style={{
-            flexShrink: 0,
-            width: 30,
-            height: 30,
-            borderRadius: 8,
+            position: 'absolute',
+            right: 8,
+            bottom: 8,
+            width: 28,
+            height: 28,
+            borderRadius: 7,
             border: 'none',
-            cursor: disabled || (!isStreaming && !text.trim()) ? 'default' : 'pointer',
+            cursor: btnActive ? 'pointer' : 'default',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background:
-              disabled || (!isStreaming && !text.trim())
-                ? '#e5e7eb'
-                : isStreaming
-                  ? '#f9f9f8'
-                  : '#1a1a1a',
-            color:
-              disabled || (!isStreaming && !text.trim())
-                ? '#9b9a97'
-                : isStreaming
-                  ? '#1a1a1a'
-                  : 'white',
-            transition: 'background 150ms',
+            flexShrink: 0,
+            background: btnActive
+              ? isStreaming ? '#f3f4f6' : '#1a1a1a'
+              : '#e5e7eb',
+            color: btnActive
+              ? isStreaming ? '#374151' : 'white'
+              : '#9b9a97',
+            transition: 'background 120ms',
           }}
         >
-          {isStreaming ? (
-            <Square size={12} strokeWidth={2} />
-          ) : (
-            <ArrowUp size={14} strokeWidth={2} />
-          )}
+          {isStreaming
+            ? <Square size={11} strokeWidth={2.5} />
+            : <ArrowUp size={14} strokeWidth={2.5} />
+          }
         </button>
       </div>
+
       <p style={{ fontSize: 11, color: '#c7c7c5', textAlign: 'center', marginTop: 6 }}>
-        AI 可能会出错，请核实重要信息
+        Shift+Enter 换行 · AI 可能会出错，请核实重要信息
       </p>
     </div>
   )

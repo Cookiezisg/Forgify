@@ -121,34 +121,39 @@ func GetRawKeyForProvider(provider string) (key, baseURL string, err error) {
 	return string(raw), baseURL, nil
 }
 
+// providerDefaults maps provider IDs to their default base URLs for testing.
+// Providers not listed here either have a custom implementation or use openai.com.
+var providerDefaults = map[string]string{
+	"openai":      "https://api.openai.com/v1",
+	"deepseek":    "https://api.deepseek.com/v1",
+	"moonshot":    "https://api.moonshot.cn/v1",
+	"groq":        "https://api.groq.com/openai/v1",
+	"mistral":     "https://api.mistral.ai/v1",
+	"gemini":      "https://generativelanguage.googleapis.com/v1beta/openai",
+	"siliconflow": "https://api.siliconflow.cn/v1",
+	"openrouter":  "https://openrouter.ai/api/v1",
+	"zhipu":       "https://open.bigmodel.cn/api/paas/v4",
+}
+
 func TestAPIKeyConnection(ctx context.Context, provider, rawKey, baseURL string) (bool, string, error) {
 	switch provider {
 	case "anthropic":
 		return testAnthropic(ctx, rawKey)
-	case "openai":
-		if baseURL == "" {
-			baseURL = "https://api.openai.com/v1"
-		}
-		return testOpenAICompat(ctx, rawKey, baseURL)
-	case "deepseek":
-		if baseURL == "" {
-			baseURL = "https://api.deepseek.com/v1"
-		}
-		return testOpenAICompat(ctx, rawKey, baseURL)
-	case "moonshot":
-		if baseURL == "" {
-			baseURL = "https://api.moonshot.cn/v1"
-		}
-		return testOpenAICompat(ctx, rawKey, baseURL)
-	case "openai_compat":
-		return testOpenAICompat(ctx, rawKey, baseURL)
 	case "ollama":
 		if baseURL == "" {
 			baseURL = "http://localhost:11434"
 		}
 		return testOllama(ctx, baseURL)
+	case "openai_compat":
+		return testOpenAICompat(ctx, rawKey, baseURL)
 	default:
-		return false, "", fmt.Errorf("unknown provider: %s", provider)
+		if baseURL == "" {
+			baseURL = providerDefaults[provider]
+		}
+		if baseURL == "" {
+			return false, "", fmt.Errorf("unknown provider: %s", provider)
+		}
+		return testOpenAICompat(ctx, rawKey, baseURL)
 	}
 }
 

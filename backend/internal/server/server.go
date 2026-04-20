@@ -14,6 +14,7 @@ type Server struct {
 	broker  *SSEBroker
 	Events  *events.Bridge
 	chatSvc *service.ChatService
+	convSvc *service.ConversationService
 }
 
 func New() *Server {
@@ -24,12 +25,14 @@ func New() *Server {
 		return service.GetRawKeyForProvider(provider)
 	}
 	gateway := model.New(keyProvider, bridge)
+	convSvc := service.NewConversationService(gateway, bridge)
 
 	s := &Server{
 		mux:     http.NewServeMux(),
 		broker:  broker,
 		Events:  bridge,
-		chatSvc: service.NewChatService(gateway, bridge),
+		chatSvc: service.NewChatService(gateway, bridge, convSvc),
+		convSvc: convSvc,
 	}
 	s.routes()
 	return s
@@ -37,7 +40,7 @@ func New() *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -58,7 +61,14 @@ func (s *Server) routes() {
 
 	// Conversations
 	s.mux.HandleFunc("GET /api/conversations", s.listConversations)
+	s.mux.HandleFunc("GET /api/conversations/archived", s.listArchivedConversations)
+	s.mux.HandleFunc("GET /api/conversations/search", s.searchConversations)
 	s.mux.HandleFunc("POST /api/conversations", s.createConversation)
+	s.mux.HandleFunc("PATCH /api/conversations/{id}/rename", s.renameConversation)
+	s.mux.HandleFunc("PATCH /api/conversations/{id}/archive", s.archiveConversation)
+	s.mux.HandleFunc("PATCH /api/conversations/{id}/restore", s.restoreConversation)
+	s.mux.HandleFunc("PATCH /api/conversations/{id}/bind", s.bindConversation)
+	s.mux.HandleFunc("PATCH /api/conversations/{id}/unbind", s.unbindConversation)
 	s.mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
 	s.mux.HandleFunc("GET /api/conversations/{id}/messages", s.listMessages)
 

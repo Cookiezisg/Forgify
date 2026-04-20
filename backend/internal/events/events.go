@@ -4,7 +4,9 @@ const (
 	ChatToken     = "chat.token"
 	ChatDone      = "chat.done"
 	ChatError     = "chat.error"
-	ChatCompacted = "chat.compacted"
+	ChatCompacted    = "chat.compacted"
+	ChatBound        = "chat.bound"
+	ChatTitleUpdated = "chat.title_updated"
 
 	Notification = "notification"
 

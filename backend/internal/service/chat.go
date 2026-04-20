@@ -19,14 +19,16 @@ import (
 type ChatService struct {
 	gateway *model.ModelGateway
 	bridge  *events.Bridge
+	convSvc *ConversationService
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
 }
 
-func NewChatService(gateway *model.ModelGateway, bridge *events.Bridge) *ChatService {
+func NewChatService(gateway *model.ModelGateway, bridge *events.Bridge, convSvc *ConversationService) *ChatService {
 	return &ChatService{
 		gateway: gateway,
 		bridge:  bridge,
+		convSvc: convSvc,
 		cancels: make(map[string]context.CancelFunc),
 	}
 }
@@ -38,6 +40,7 @@ type chatTokenPayload struct {
 
 type chatDonePayload struct {
 	ConversationID string `json:"conversationId"`
+	ModelID        string `json:"modelId,omitempty"`
 }
 
 type chatErrorPayload struct {
@@ -54,22 +57,23 @@ type notificationPayload struct {
 func (s *ChatService) SendMessage(ctx context.Context, conversationID, userMessage string) error {
 	userMsgID := uuid.NewString()
 	if _, err := storage.DB().Exec(
-		`INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, 'user', ?)`,
+		`INSERT INTO messages (id, conversation_id, role, content, content_type) VALUES (?, ?, 'user', ?, 'text')`,
 		userMsgID, conversationID, userMessage,
 	); err != nil {
 		return fmt.Errorf("save user message: %w", err)
 	}
-	storage.DB().Exec(`UPDATE conversations SET updated_at=datetime('now') WHERE id=?`, conversationID)
+	s.convSvc.TouchUpdatedAt(conversationID)
 
 	history, err := s.loadHistory(conversationID)
 	if err != nil {
 		return fmt.Errorf("load history: %w", err)
 	}
 
-	llm, _, getErr := s.gateway.GetModel(ctx, model.PurposeConversation)
+	llm, modelID, getErr := s.gateway.GetModel(ctx, model.PurposeConversation)
 	if getErr != nil {
 		var fallbackErr model.ErrUsedFallback
 		if errors.As(getErr, &fallbackErr) {
+			modelID = fallbackErr.Fallback
 			s.bridge.Emit(events.Notification, notificationPayload{
 				Title: "已自动切换模型",
 				Body:  fmt.Sprintf("主模型不可用，已切换到 %s", fallbackErr.Fallback),
@@ -89,7 +93,7 @@ func (s *ChatService) SendMessage(ctx context.Context, conversationID, userMessa
 	s.cancels[conversationID] = cancel
 	s.mu.Unlock()
 
-	go s.doStream(streamCtx, cancel, conversationID, llm, history)
+	go s.doStream(streamCtx, cancel, conversationID, llm, history, modelID, userMessage)
 	return nil
 }
 
@@ -108,6 +112,8 @@ func (s *ChatService) doStream(
 	conversationID string,
 	llm einomodel.BaseChatModel,
 	history []*schema.Message,
+	modelID string,
+	userMessage string,
 ) {
 	defer func() {
 		cancel()
@@ -130,12 +136,20 @@ func (s *ChatService) doStream(
 	for {
 		chunk, err := sr.Recv()
 		if errors.Is(err, io.EOF) {
+			content := buf.String()
 			assistantMsgID := uuid.NewString()
 			storage.DB().Exec(
-				`INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, 'assistant', ?)`,
-				assistantMsgID, conversationID, buf.String(),
+				`INSERT INTO messages (id, conversation_id, role, content, content_type, model_id) VALUES (?, ?, 'assistant', ?, 'text', ?)`,
+				assistantMsgID, conversationID, content, modelID,
 			)
-			s.bridge.Emit(events.ChatDone, chatDonePayload{ConversationID: conversationID})
+			s.convSvc.TouchUpdatedAt(conversationID)
+			s.bridge.Emit(events.ChatDone, chatDonePayload{
+				ConversationID: conversationID,
+				ModelID:        modelID,
+			})
+
+			// Trigger auto-title for first exchange
+			s.convSvc.AutoTitle(ctx, conversationID, userMessage, content)
 			return
 		}
 		if err != nil {

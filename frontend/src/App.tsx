@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { InboxProvider } from "./context/InboxContext";
+import { ChatProvider } from "./context/ChatContext";
 import { LocaleProvider } from "./lib/i18n";
 import { SidebarNav, Tab } from "./components/SidebarNav";
 import { HomeLeftPanel, HomeContent } from "./pages/HomePage";
@@ -78,6 +79,7 @@ function App() {
   return (
     <LocaleProvider>
     <InboxProvider>
+    <ChatProvider>
       <div className="flex h-screen w-screen overflow-hidden bg-white text-gray-900">
         {titleBarHeight > 0 && (
           <div
@@ -105,6 +107,7 @@ function App() {
           <MainContent tab={activeTab} />
         </main>
       </div>
+    </ChatProvider>
     </InboxProvider>
     </LocaleProvider>
   );

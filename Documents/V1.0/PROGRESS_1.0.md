@@ -1,7 +1,7 @@
 # Forgify 开发进度
 
-**更新于**：2026-04-19  
-**当前状态**：Tier 1 完成，开始 Tier 2
+**更新于**：2026-04-20  
+**当前状态**：Tier 1-3（C1+C2）完成，C3/C4 待做
 
 ---
 
@@ -43,8 +43,8 @@
 
 | 切片 | 描述 | 状态 | 备注 |
 |---|---|---|---|
-| **C1** Conversation Management | 对话列表，1:1 资产绑定 | ⬜ | |
-| **C2** Message UI | 消息气泡，Markdown 渲染，流式 | ⬜ | |
+| **C1** Conversation Management | 对话列表，1:1 资产绑定 | ✅ | 搜索、重命名、归档、删除、自动命名、资产徽章 |
+| **C2** Message UI | 消息气泡，Markdown 渲染，流式 | ✅ | 滚动控制、模型名称、空状态、卡片框架 |
 | **C4** Context Compression | 三层压缩 | ⬜ | 可以晚一点做 |
 | **C3** File Attachment | 文件拖拽上传 | ⬜ | 可以晚一点做 |
 
@@ -159,3 +159,4 @@ H2 → H1, I1, I2, I3
 | 2026-04-19 | PRD v0.3 + TDD v0.3 + 38 个切片文档全部完成 |
 | 2026-04-19 | A1+A2+A3 完成：Electron + Go HTTP subprocess，SSE 事件系统，SQLite 迁移 |
 | 2026-04-20 | B1+K1+B2+B3 完成：API Key 加密存储，模型设置，Eino 流式对话，模型降级策略 |
+| 2026-04-20 | C1+C2 完成：ConversationService，搜索/重命名/归档/自动命名，ChatContext，滚动控制，模型名称，空状态 |

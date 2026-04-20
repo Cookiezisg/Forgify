@@ -6,6 +6,8 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  contentType: string
+  modelId?: string
   status: 'done' | 'streaming' | 'error'
 }
 
@@ -17,19 +19,32 @@ export function useChat(conversationId: string | null) {
 
   // Load history when conversation changes
   useEffect(() => {
-    if (!conversationId || loadedForRef.current === conversationId) return
+    if (!conversationId) {
+      setMessages([])
+      loadedForRef.current = null
+      return
+    }
+    if (loadedForRef.current === conversationId) return
     loadedForRef.current = conversationId
     setMessages([])
     setError(null)
-    api<{ id: string; role: string; content: string; createdAt: string }[]>(
-      `/api/conversations/${conversationId}/messages`
-    )
+    setIsStreaming(false)
+    api<{
+      id: string
+      role: string
+      content: string
+      contentType?: string
+      modelId?: string
+      createdAt: string
+    }[]>(`/api/conversations/${conversationId}/messages`)
       .then((msgs) =>
         setMessages(
           msgs.map((m) => ({
             id: m.id,
             role: m.role as ChatMessage['role'],
             content: m.content,
+            contentType: m.contentType || 'text',
+            modelId: m.modelId || undefined,
             status: 'done' as const,
           }))
         )
@@ -49,11 +64,14 @@ export function useChat(conversationId: string | null) {
           setMessages((prev) => appendToken(prev, e.token))
         }
       ),
-      onEvent<{ conversationId: string }>(EventNames.ChatDone, (e) => {
-        if (e.conversationId !== conversationId) return
-        setIsStreaming(false)
-        setMessages((prev) => finalizeLastMessage(prev))
-      }),
+      onEvent<{ conversationId: string; modelId?: string }>(
+        EventNames.ChatDone,
+        (e) => {
+          if (e.conversationId !== conversationId) return
+          setIsStreaming(false)
+          setMessages((prev) => finalizeLastMessage(prev, e.modelId))
+        }
+      ),
       onEvent<{ conversationId: string; error: string }>(
         EventNames.ChatError,
         (e) => {
@@ -73,12 +91,14 @@ export function useChat(conversationId: string | null) {
         id: crypto.randomUUID(),
         role: 'user',
         content: text,
+        contentType: 'text',
         status: 'done',
       }
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: '',
+        contentType: 'text',
         status: 'streaming',
       }
       setMessages((prev) => [...prev, userMsg, assistantMsg])
@@ -118,10 +138,12 @@ function appendToken(messages: ChatMessage[], token: string): ChatMessage[] {
   )
 }
 
-function finalizeLastMessage(messages: ChatMessage[]): ChatMessage[] {
+function finalizeLastMessage(messages: ChatMessage[], modelId?: string): ChatMessage[] {
   if (messages.length === 0) return messages
   return messages.map((m, i) =>
-    i === messages.length - 1 ? { ...m, status: 'done' as const } : m
+    i === messages.length - 1
+      ? { ...m, status: 'done' as const, modelId: modelId || m.modelId }
+      : m
   )
 }
 

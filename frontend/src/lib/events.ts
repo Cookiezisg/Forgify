@@ -15,6 +15,8 @@ export const EventNames = {
   ChatDone:           "chat.done",
   ChatError:          "chat.error",
   ChatCompacted:      "chat.compacted",
+  ChatBound:          "chat.bound",
+  ChatTitleUpdated:   "chat.title_updated",
   Notification:       "notification",
   NodeStatusChanged:  "node.status_changed",
   NodeOutput:         "node.output",

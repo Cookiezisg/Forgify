@@ -8,12 +8,22 @@ interface Props {
   message: ChatMessage
 }
 
+/** Extract a short display name from a model ID string. */
+function formatModelName(id: string | undefined): string | undefined {
+  if (!id) return undefined
+  // e.g. "claude-sonnet-4-6-20250514" → "Claude Sonnet 4.6"
+  // e.g. "gpt-4o" → "GPT-4o"
+  // Just show the raw ID for now — it's short enough
+  return id
+}
+
 export function MessageItem({ message }: Props) {
   const t = useT()
   const isUser = message.role === 'user'
   const isError = message.status === 'error'
   const isStreaming = message.status === 'streaming'
 
+  // User message
   if (isUser) {
     return (
       <div className="flex justify-end px-6 py-1">
@@ -36,12 +46,37 @@ export function MessageItem({ message }: Props) {
     )
   }
 
+  // System / summary messages
+  if (message.role === 'system') {
+    return (
+      <div className="flex justify-center px-6 py-1">
+        <div
+          style={{
+            maxWidth: '80%',
+            borderRadius: 8,
+            padding: '6px 12px',
+            fontSize: 12,
+            lineHeight: '1.6',
+            color: '#9b9a97',
+            background: '#f7f7f5',
+            textAlign: 'center',
+          }}
+        >
+          {message.content}
+        </div>
+      </div>
+    )
+  }
+
+  // Assistant message
+  const modelName = formatModelName(message.modelId)
+
   return (
     <div className="flex justify-start px-6 py-1">
       <div style={{ maxWidth: '88%', minWidth: 0 }}>
-        {/* AI label */}
+        {/* Model label */}
         <div style={{ fontSize: 11, color: '#9b9a97', marginBottom: 4, fontWeight: 500 }}>
-          {t('chat.forgifyAI')}
+          {modelName || t('chat.forgifyAI')}
         </div>
 
         {isError ? (
@@ -147,13 +182,92 @@ export function MessageItem({ message }: Props) {
                   return <li style={{ margin: '2px 0' }}>{children}</li>
                 },
                 h1({ children }) {
-                  return <h1 style={{ fontSize: 18, fontWeight: 600, margin: '12px 0 6px' }}>{children}</h1>
+                  return (
+                    <h1 style={{ fontSize: 18, fontWeight: 600, margin: '12px 0 6px' }}>
+                      {children}
+                    </h1>
+                  )
                 },
                 h2({ children }) {
-                  return <h2 style={{ fontSize: 16, fontWeight: 600, margin: '10px 0 4px' }}>{children}</h2>
+                  return (
+                    <h2 style={{ fontSize: 16, fontWeight: 600, margin: '10px 0 4px' }}>
+                      {children}
+                    </h2>
+                  )
                 },
                 h3({ children }) {
-                  return <h3 style={{ fontSize: 14, fontWeight: 600, margin: '8px 0 4px' }}>{children}</h3>
+                  return (
+                    <h3 style={{ fontSize: 14, fontWeight: 600, margin: '8px 0 4px' }}>
+                      {children}
+                    </h3>
+                  )
+                },
+                blockquote({ children }) {
+                  return (
+                    <blockquote
+                      style={{
+                        borderLeft: '3px solid #e5e7eb',
+                        paddingLeft: 12,
+                        margin: '8px 0',
+                        color: '#6b7280',
+                      }}
+                    >
+                      {children}
+                    </blockquote>
+                  )
+                },
+                hr() {
+                  return (
+                    <hr
+                      style={{
+                        border: 'none',
+                        borderTop: '1px solid #e5e7eb',
+                        margin: '12px 0',
+                      }}
+                    />
+                  )
+                },
+                table({ children }) {
+                  return (
+                    <div style={{ overflowX: 'auto', margin: '8px 0' }}>
+                      <table
+                        style={{
+                          borderCollapse: 'collapse',
+                          fontSize: 13,
+                          width: '100%',
+                        }}
+                      >
+                        {children}
+                      </table>
+                    </div>
+                  )
+                },
+                th({ children }) {
+                  return (
+                    <th
+                      style={{
+                        border: '1px solid #e5e7eb',
+                        padding: '6px 10px',
+                        background: '#f7f7f5',
+                        fontWeight: 600,
+                        textAlign: 'left',
+                      }}
+                    >
+                      {children}
+                    </th>
+                  )
+                },
+                td({ children }) {
+                  return (
+                    <td
+                      style={{
+                        border: '1px solid #e5e7eb',
+                        padding: '6px 10px',
+                      }}
+                    >
+                      {children}
+                    </td>
+                  )
                 },
               }}
             >

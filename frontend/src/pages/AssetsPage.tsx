@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Search, Upload, MessageCircle } from 'lucide-react'
+import { Plus, Search, Upload, Trash2, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ToolCard } from '@/components/tools/ToolCard'
-import { ToolMainView } from '@/components/tools/ToolMainView'
+import { useTabContext } from '@/context/TabContext'
 import { useT } from '@/lib/i18n'
 
 interface Tool {
@@ -21,10 +21,10 @@ const CATEGORIES = ['all', 'email', 'data', 'web', 'file', 'system', 'other'] as
 
 export function AssetsLeftPanel() {
   const t = useT()
+  const { openTab } = useTabContext()
   const [tools, setTools] = useState<Tool[]>([])
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
-  const [activeId, setActiveId] = useState<string | null>(null)
 
   const load = useCallback(() => {
     const params = new URLSearchParams()
@@ -34,6 +34,13 @@ export function AssetsLeftPanel() {
   }, [category, query])
 
   useEffect(() => { load() }, [load])
+
+  // Refresh when tools change (delete, restore, create)
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('tool:changed', handler)
+    return () => window.removeEventListener('tool:changed', handler)
+  }, [load])
 
   const handleNewTool = () => {
     window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'chat' }))
@@ -62,10 +69,9 @@ export function AssetsLeftPanel() {
     input.click()
   }
 
-  // Expose activeId to content panel
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('assets:toolChange', { detail: activeId }))
-  }, [activeId])
+  const handleOpenTool = useCallback((tool: Tool) => {
+    openTab({ layout: 'tool', label: tool.displayName, toolId: tool.id })
+  }, [openTab])
 
   const categoryLabel = (c: string) => {
     const map: Record<string, () => string> = {
@@ -153,127 +159,93 @@ export function AssetsLeftPanel() {
           </div>
         ) : (
           tools.map((tool) => (
-            <ToolCard key={tool.id} tool={tool} active={activeId === tool.id}
-              onClick={() => setActiveId(tool.id)} />
+            <ToolCard key={tool.id} tool={tool} active={false}
+              onClick={() => handleOpenTool(tool)} />
           ))
         )}
+
+      </div>
+
+      {/* Recycle Bin — fixed at bottom of sidebar */}
+      <div style={{ flexShrink: 0, borderTop: '1px solid #f3f4f6', padding: '0 8px' }}>
+        <RecycleBin onRestored={load} />
       </div>
     </div>
   )
 }
 
-interface AssetConversation {
-  id: string
-  title: string
-  updatedAt: string
-}
+function RecycleBin({ onRestored }: { onRestored: () => void }) {
+  const [show, setShow] = useState(false)
+  const [deleted, setDeleted] = useState<Tool[]>([])
 
-function AssetMiniSidebar({ toolId }: { toolId: string }) {
-  const t = useT()
-  const [convs, setConvs] = useState<AssetConversation[]>([])
-
-  useEffect(() => {
-    api<AssetConversation[]>(`/api/asset-conversations/${toolId}`)
-      .then(setConvs)
-      .catch(() => setConvs([]))
-  }, [toolId])
-
-  const handleNewConv = async () => {
-    try {
-      await api('/api/conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetId: toolId, assetType: 'tool' }),
-      })
-      // Navigate to chat tab
-      window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'chat' }))
-    } catch {}
-  }
-
-  const handleGoToConv = (convId: string) => {
-    // Navigate to chat tab and select conversation
-    window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'chat' }))
-  }
-
-  return (
-    <div style={{
-      width: 200, borderRight: '1px solid #e5e7eb', flexShrink: 0,
-      display: 'flex', flexDirection: 'column', height: '100%',
-    }}>
-      <div style={{ padding: '10px 12px 6px' }}>
-        <p style={{ fontSize: 11, fontWeight: 600, color: '#9b9a97', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-          {t('nav.chat')}
-        </p>
-        <button onClick={handleNewConv} style={{
-          display: 'flex', alignItems: 'center', gap: 4, width: '100%',
-          padding: '5px 8px', borderRadius: 5, border: 'none',
-          background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#374151',
-          transition: 'background 100ms',
-        }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-        >
-          <Plus size={12} strokeWidth={2} />
-          {t('chat.newChat')}
-        </button>
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
-        {convs.length === 0 ? (
-          <p style={{ fontSize: 11, color: '#c7c7c5', padding: '8px 6px' }}>{t('chat.noChats')}</p>
-        ) : (
-          convs.map((c) => (
-            <div key={c.id} onClick={() => handleGoToConv(c.id)} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '5px 8px', borderRadius: 5, cursor: 'pointer',
-              fontSize: 12, color: '#374151', transition: 'background 100ms',
-            }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <MessageCircle size={11} strokeWidth={1.6} style={{ color: '#9b9a97', flexShrink: 0 }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {c.title}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  )
-}
-
-export function AssetsContent() {
-  const t = useT()
-  const [activeToolId, setActiveToolId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const handler = (e: Event) => setActiveToolId((e as CustomEvent).detail)
-    window.addEventListener('assets:toolChange', handler)
-    return () => window.removeEventListener('assets:toolChange', handler)
+  const loadDeleted = useCallback(() => {
+    api<Tool[]>('/api/tools/deleted').then(setDeleted).catch(() => {})
   }, [])
 
-  if (!activeToolId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 8 }}>
-        <p style={{ fontSize: 16, fontWeight: 500, color: '#374151' }}>
-          {t('tools.emptyTitle')}
-        </p>
-        <p style={{ fontSize: 13, color: '#9b9a97' }}>
-          {t('tools.emptyHint')}
-        </p>
-      </div>
-    )
+  useEffect(() => { if (show) loadDeleted() }, [show, loadDeleted])
+
+  const handleRestore = async (id: string) => {
+    await api(`/api/tools/${id}/restore`, { method: 'POST' }).catch(() => {})
+    window.dispatchEvent(new CustomEvent('tool:changed'))
+    loadDeleted()
+    onRestored()
+  }
+
+  const handlePermanent = async (id: string) => {
+    if (!window.confirm('永久删除此工具？此操作不可恢复。')) return
+    await api(`/api/tools/${id}/permanent`, { method: 'DELETE' }).catch(() => {})
+    window.dispatchEvent(new CustomEvent('tool:changed'))
+    loadDeleted()
   }
 
   return (
-    <div className="flex h-full">
-      <AssetMiniSidebar toolId={activeToolId} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <ToolMainView
-          toolId={activeToolId}
-          onDeleted={() => setActiveToolId(null)}
-        />
-      </div>
+    <div style={{ marginTop: 8 }}>
+      <button
+        onClick={() => setShow(!show)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+          padding: '6px 10px', borderRadius: 6, border: 'none',
+          background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#9b9a97',
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+      >
+        <Trash2 size={12} strokeWidth={1.6} />
+        {show ? '隐藏回收站' : '回收站'}
+        {!show && deleted.length > 0 && (
+          <span style={{ fontSize: 10, color: '#c7c7c5' }}>({deleted.length})</span>
+        )}
+      </button>
+
+      {show && deleted.map(tool => (
+        <div key={tool.id} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '4px 10px', fontSize: 12, color: '#9b9a97',
+        }}>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {tool.displayName}
+          </span>
+          <button onClick={() => handleRestore(tool.id)} title="恢复"
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9b9a97', padding: 2, display: 'flex' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#374151')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#9b9a97')}
+          >
+            <RotateCcw size={12} />
+          </button>
+          <button onClick={() => handlePermanent(tool.id)} title="永久删除"
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9b9a97', padding: 2, display: 'flex' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#dc2626')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#9b9a97')}
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
+      {show && deleted.length === 0 && (
+        <p style={{ fontSize: 11, color: '#c7c7c5', padding: '4px 10px' }}>回收站为空</p>
+      )}
     </div>
   )
 }
+
+// AssetsContent is no longer needed — tools open as tabs via LayoutRouter

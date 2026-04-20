@@ -33,8 +33,6 @@ func main() {
 		os.Exit(1)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-
-	// Print port to stdout so Electron can read it
 	fmt.Printf("FORGIFY_PORT=%d\n", port)
 	os.Stdout.Sync()
 
@@ -49,6 +47,6 @@ func main() {
 	}()
 
 	if err := http.Serve(listener, srv); err != nil {
-		os.Exit(0) // listener closed on shutdown
+		os.Exit(0)
 	}
 }

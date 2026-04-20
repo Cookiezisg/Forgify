@@ -4,18 +4,12 @@ import { zhCN } from './locales/zh-CN'
 import { en } from './locales/en'
 
 export type Locale = 'zh-CN' | 'en'
-
 const locales = { 'zh-CN': zhCN, en } as const
-
 const STORAGE_KEY = 'forgify.locale'
 
-// Derive type-safe leaf key paths from the source translation object.
-// e.g. 'nav.home' | 'chat.newChat' | ...
 type LeafPaths<T, P extends string = ''> = T extends string
   ? P
-  : {
-      [K in Extract<keyof T, string>]: LeafPaths<T[K], P extends '' ? K : `${P}.${K}`>
-    }[Extract<keyof T, string>]
+  : { [K in Extract<keyof T, string>]: LeafPaths<T[K], P extends '' ? K : `${P}.${K}`> }[Extract<keyof T, string>]
 
 export type TranslationKey = LeafPaths<typeof zhCN>
 
@@ -42,17 +36,14 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem(STORAGE_KEY)
     return saved === 'en' || saved === 'zh-CN' ? saved : 'zh-CN'
   })
-
   const setLocale = useCallback((l: Locale) => {
     localStorage.setItem(STORAGE_KEY, l)
     setLocaleState(l)
   }, [])
-
   const t = useCallback(
     (key: TranslationKey): string => resolve(locales[locale] as Record<string, unknown>, key),
     [locale]
   )
-
   return <I18nContext.Provider value={{ locale, setLocale, t }}>{children}</I18nContext.Provider>
 }
 
@@ -62,6 +53,4 @@ export function useI18n() {
   return ctx
 }
 
-export function useT() {
-  return useI18n().t
-}
+export function useT() { return useI18n().t }

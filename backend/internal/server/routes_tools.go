@@ -2,8 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
+	"github.com/sunweilin/forgify/internal/forge"
 	"github.com/sunweilin/forgify/internal/sandbox"
 	"github.com/sunweilin/forgify/internal/service"
 )
@@ -47,13 +49,31 @@ func (s *Server) createTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse code with AST to extract parameters and requirements
+	parsed := forge.ParseFunction(req.Code)
+	var params []service.ToolParameter
+	var reqs []string
+	if parsed != nil {
+		for _, p := range parsed.Params {
+			params = append(params, service.ToolParameter{
+				Name: p.Name, Type: p.Type, FullType: p.FullType,
+				Required: p.Required, Default: p.Default,
+			})
+		}
+		reqs = parsed.Requirements
+	}
+	if len(reqs) == 0 && len(req.Requirements) > 0 {
+		reqs = req.Requirements
+	}
+
 	tool := &service.Tool{
 		Name:         req.Name,
 		DisplayName:  req.DisplayName,
 		Description:  req.Description,
 		Code:         req.Code,
 		Category:     req.Category,
-		Requirements: req.Requirements,
+		Requirements: reqs,
+		Parameters:   params,
 		Status:       "draft",
 	}
 	if err := s.toolSvc.Save(tool); err != nil {
@@ -90,7 +110,22 @@ func (s *Server) updateTool(w http.ResponseWriter, r *http.Request) {
 	existing.Description = req.Description
 	existing.Code = req.Code
 	existing.Category = req.Category
-	// Re-parse will be done by forge/parser when integrated
+
+	// Re-parse parameters from code via AST
+	if parsed := forge.ParseFunction(req.Code); parsed != nil {
+		var params []service.ToolParameter
+		for _, p := range parsed.Params {
+			params = append(params, service.ToolParameter{
+				Name: p.Name, Type: p.Type, FullType: p.FullType,
+				Required: p.Required, Default: p.Default,
+			})
+		}
+		existing.Parameters = params
+		if len(parsed.Requirements) > 0 {
+			existing.Requirements = parsed.Requirements
+		}
+	}
+
 	if err := s.toolSvc.Save(existing); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -105,6 +140,33 @@ func (s *Server) deleteTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) restoreTool(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.Restore(id); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) permanentDeleteTool(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.PermanentDelete(id); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listDeletedTools(w http.ResponseWriter, r *http.Request) {
+	tools, err := s.toolSvc.ListDeleted()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, tools)
 }
 
 func (s *Server) runTool(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +216,158 @@ func (s *Server) listToolTestHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, history)
+}
+
+func (s *Server) getToolPendingChange(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	code, summary, hasPending := s.toolSvc.GetPendingChange(id)
+	if !hasPending {
+		jsonOK(w, map[string]any{"hasPending": false})
+		return
+	}
+	// Also get current code for diff
+	tool, _ := s.toolSvc.Get(id)
+	currentCode := ""
+	if tool != nil {
+		currentCode = tool.Code
+	}
+	jsonOK(w, map[string]any{
+		"hasPending":  true,
+		"currentCode": currentCode,
+		"pendingCode": code,
+		"summary":     summary,
+	})
+}
+
+func (s *Server) acceptPendingChange(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.AcceptPendingChange(id); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	tool, _ := s.toolSvc.Get(id)
+	jsonOK(w, tool)
+}
+
+func (s *Server) rejectPendingChange(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.RejectPendingChange(id); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) updateToolMeta(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		DisplayName *string `json:"displayName"`
+		Description *string `json:"description"`
+		Category    *string `json:"category"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.toolSvc.UpdateMeta(id, req.DisplayName, req.Description, req.Category); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tool, _ := s.toolSvc.Get(id)
+	jsonOK(w, tool)
+}
+
+func (s *Server) listToolTags(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tags, err := s.toolSvc.ListTags(id)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, tags)
+}
+
+func (s *Server) addToolTag(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct{ Tag string `json:"tag"` }
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.Tag == "" {
+		jsonError(w, "tag is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.toolSvc.AddTag(id, req.Tag); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) removeToolTag(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tag := r.PathValue("tag")
+	if err := s.toolSvc.RemoveTag(id, tag); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listToolVersions(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	versions, err := s.toolSvc.ListVersions(id)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, versions)
+}
+
+func (s *Server) restoreToolVersion(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	vStr := r.PathValue("v")
+	var v int
+	fmt.Sscanf(vStr, "%d", &v)
+	if err := s.toolSvc.RestoreVersion(id, v); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listToolTestCases(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cases, err := s.toolSvc.ListTestCases(id)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, cases)
+}
+
+func (s *Server) saveToolTestCase(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Name   string `json:"name"`
+		Params string `json:"params"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.Name == "" {
+		req.Name = "Default"
+	}
+	if err := s.toolSvc.SaveTestCase(id, req.Name, req.Params); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) deleteToolTestCase(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.DeleteTestCase(id); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) exportTool(w http.ResponseWriter, r *http.Request) {

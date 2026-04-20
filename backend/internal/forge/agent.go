@@ -1,53 +1,96 @@
 package forge
 
 // ForgeSystemPrompt is injected into conversations when forge mode is active.
-const ForgeSystemPrompt = `你是 Forgify 的工具锻造助手。你的任务是帮助用户创建可运行的 Python 工具。
+const ForgeSystemPrompt = `你是 Forgify 的工具锻造助手。
 
-**工具代码规范**（必须严格遵守）：
-1. 只有一个顶层函数，使用 snake_case 命名
-2. 所有参数必须有类型注解（str/int/float/bool/list/dict）
-3. 返回值类型必须是 dict
-4. 函数第一行必须是 docstring，说明功能
-5. 可以使用 import（依赖会自动安装）
+当用户要求你创建工具时，你必须生成 Python 代码。代码格式有严格要求，不可省略任何部分：
 
-**示例格式**：
 ` + "```python" + `
-def send_email(to: str, subject: str, body: str) -> dict:
-    """通过 SMTP 发送邮件到指定地址"""
-    import smtplib
-    # ... 实现
-    return {"success": True, "message": "邮件已发送"}
+# @version 1.0
+# @category 分类（email/data/web/file/system/other 选一个）
+# @display_name 中文工具名（不超过10字）
+# @description 一句话描述功能（不超过30字）
+
+def function_name(param1: str, param2: int = 0) -> dict:
+    """功能描述"""
+    # 实现代码
+    return {"result": "..."}
 ` + "```" + `
 
-生成代码后，在代码块下方简短说明用法，不需要解释每一行代码。`
+规则：
+- 前四行 # @version / # @category / # @display_name / # @description 注释是必须的，绝对不能省略
+- 函数用 snake_case 命名，参数有类型注解，返回 dict
+- 函数第一行是 docstring
+- 可以 import 第三方库（会自动安装）
+
+生成代码后简短说明用法即可。`
 
 // DetectResult is returned when a code block is found in an AI response.
 type DetectResult struct {
 	Code         string
 	FuncName     string
 	Docstring    string
+	DisplayName  string
+	Description  string
+	Category     string
 	Params       []ParsedParam
 	Requirements []string
 }
 
 // DetectCodeInResponse checks if an AI response contains a Python code block
-// and parses it if found.
+// and parses it if found. Extracts metadata from @-comments.
 func DetectCodeInResponse(content string) *DetectResult {
 	code := ExtractCodeBlock(content)
 	if code == "" {
 		return nil
 	}
 
-	parsed := ParseFunction(code)
-	if parsed.FuncName == "" {
-		return nil
+	// Try AST parser first — also returns metadata from @comments
+	astResult, astMeta, err := ParseFunctionAST(code)
+	if err != nil || astResult == nil || astResult.FuncName == "" {
+		// Fallback to regex
+		astResult = ParseFunction(code)
+		if astResult.FuncName == "" {
+			return nil
+		}
 	}
 
-	return &DetectResult{
+	result := &DetectResult{
 		Code:         code,
-		FuncName:     parsed.FuncName,
-		Docstring:    parsed.Docstring,
-		Params:       parsed.Params,
-		Requirements: parsed.Requirements,
+		FuncName:     astResult.FuncName,
+		Docstring:    astResult.Docstring,
+		Params:       astResult.Params,
+		Requirements: astResult.Requirements,
 	}
+
+	// Use AST metadata if available, fallback to regex-based ParseMeta
+	if astMeta != nil {
+		result.DisplayName = astMeta.DisplayName
+		result.Description = astMeta.Description
+		result.Category = astMeta.Category
+	} else {
+		meta := ParseMeta(code)
+		if meta != nil {
+			result.DisplayName = meta.DisplayName
+			result.Description = meta.Description
+			result.Category = meta.Category
+		}
+	}
+
+	// Fallback: use docstring/funcName if metadata is missing
+	if result.DisplayName == "" {
+		if result.Docstring != "" {
+			result.DisplayName = result.Docstring
+		} else {
+			result.DisplayName = result.FuncName
+		}
+	}
+	if result.Description == "" {
+		result.Description = result.Docstring
+	}
+	if result.Category == "" {
+		result.Category = "other"
+	}
+
+	return result
 }

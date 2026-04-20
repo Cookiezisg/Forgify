@@ -26,6 +26,8 @@ const (
 	WorkflowDeployed = "workflow.deployed"
 	OpenConversation   = "open.conversation"
 	ForgeCodeDetected  = "forge.code_detected"
+	ForgeCodeUpdated   = "forge.code_updated"
+	ForgeCodeStreaming  = "forge.code_streaming"
 )
 
 type Bridge struct {

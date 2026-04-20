@@ -1,14 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Plus, MessageCircle, Search, Archive, RotateCcw } from 'lucide-react'
+import { useState, useMemo, useCallback } from 'react'
+import { Plus, MessageCircle, Search, Archive, RotateCcw, CheckSquare, Square } from 'lucide-react'
 import { api } from '@/lib/api'
-import { useChat } from '@/hooks/useChat'
-import { MessageList } from '@/components/chat/MessageList'
-import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput'
-import { DropZone } from '@/components/chat/DropZone'
-import { CompactBanner } from '@/components/chat/CompactBanner'
-import { BindingIndicator } from '@/components/chat/BindingIndicator'
 import { ContextMenu } from '@/components/common/ContextMenu'
 import { useChatContext, type Conversation } from '@/context/ChatContext'
+import { useTabContext } from '@/context/TabContext'
 import { useT } from '@/lib/i18n'
 
 // ─── Relative time helper ───
@@ -262,8 +257,6 @@ export function ChatLeftPanel() {
   const {
     conversations,
     archivedConversations,
-    activeId,
-    setActiveId,
     createConversation,
     renameConversation,
     archiveConversation,
@@ -271,10 +264,49 @@ export function ChatLeftPanel() {
     deleteConversation,
     showArchived,
     setShowArchived,
+    refreshConversations,
   } = useChatContext()
+  const { openTab, activeTabId, tabs } = useTabContext()
+
+  // Derive activeId from the currently active tab's conversationId
+  const activeTab = tabs.find(t => t.id === activeTabId)
+  const activeId = activeTab?.conversationId ?? null
 
   const [searchQuery, setSearchQuery] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleBatchArchive = useCallback(async () => {
+    if (selected.size === 0) return
+    await api('/api/conversations/batch-archive', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    }).catch(() => {})
+    refreshConversations()
+    setSelected(new Set())
+    setSelectMode(false)
+  }, [selected, refreshConversations])
+
+  const handleBatchDelete = useCallback(async () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`永久删除 ${selected.size} 个对话？`)) return
+    await api('/api/conversations/batch-delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    }).catch(() => {})
+    refreshConversations()
+    setSelected(new Set())
+    setSelectMode(false)
+  }, [selected, refreshConversations])
 
   // Filter conversations by search
   const displayed = useMemo(() => {
@@ -326,15 +358,39 @@ export function ChatLeftPanel() {
         </div>
       </div>
 
-      {/* New chat button */}
-      <div style={{ padding: '2px 12px 6px' }}>
+      {/* Batch mode toolbar */}
+      {selectMode && (
+        <div style={{ padding: '4px 12px', display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#6b7280', flex: 1 }}>{selected.size} 已选</span>
+          <button onClick={handleBatchArchive} disabled={selected.size === 0}
+            style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid #e5e7eb', background: 'white', color: '#374151', cursor: 'pointer' }}>
+            归档
+          </button>
+          <button onClick={handleBatchDelete} disabled={selected.size === 0}
+            style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid #fca5a5', background: 'white', color: '#dc2626', cursor: 'pointer' }}>
+            删除
+          </button>
+          <button onClick={() => { setSelectMode(false); setSelected(new Set()) }}
+            style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: 'none', background: 'transparent', color: '#9b9a97', cursor: 'pointer' }}>
+            取消
+          </button>
+        </div>
+      )}
+
+      {/* New chat + select mode toggle */}
+      <div style={{ padding: '2px 12px 6px', display: 'flex', gap: 4 }}>
         <button
-          onClick={createConversation}
+          onClick={async () => {
+            const conv = await createConversation()
+            if (conv) {
+              openTab({ layout: 'chat', label: conv.title, conversationId: conv.id })
+            }
+          }}
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            width: '100%',
+            flex: 1,
             padding: '6px 10px',
             borderRadius: 6,
             border: 'none',
@@ -350,6 +406,19 @@ export function ChatLeftPanel() {
           <Plus size={14} strokeWidth={2} />
           {t('chat.newChat')}
         </button>
+        {!selectMode && conversations.length > 0 && (
+          <button onClick={() => setSelectMode(true)} title="批量操作"
+            style={{
+              width: 28, height: 28, borderRadius: 6, border: 'none',
+              background: 'transparent', cursor: 'pointer', color: '#9b9a97',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#374151')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#9b9a97')}
+          >
+            <CheckSquare size={14} strokeWidth={1.6} />
+          </button>
+        )}
       </div>
 
       {/* Conversation list */}
@@ -376,137 +445,71 @@ export function ChatLeftPanel() {
                 />
               </div>
             ) : (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center' }}>
+                {selectMode && (
+                  <button onClick={() => toggleSelect(c.id)} style={{
+                    width: 24, height: 24, flexShrink: 0, border: 'none', background: 'none',
+                    cursor: 'pointer', color: selected.has(c.id) ? '#2383e2' : '#d1d5db',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {selected.has(c.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                  </button>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
               <ConversationItem
-                key={c.id}
                 conv={c}
                 active={activeId === c.id}
-                onClick={() => setActiveId(c.id)}
+                onClick={() => {
+                  if (selectMode) { toggleSelect(c.id); return }
+                  const layout = c.assetType === 'tool' && c.assetId ? 'chat-tool' as const : 'chat' as const
+                  openTab({
+                    layout,
+                    label: c.title,
+                    conversationId: c.id,
+                    toolId: layout === 'chat-tool' ? (c.assetId ?? undefined) : undefined,
+                  })
+                }}
                 onRename={() => setRenamingId(c.id)}
                 onArchive={() => archiveConversation(c.id)}
                 onDelete={() => deleteConversation(c.id)}
               />
+                </div>
+              </div>
             )
           )
         )}
 
-        {/* Archived section */}
-        {!searchQuery && (
-          <div style={{ marginTop: 8 }}>
-            <button
-              onClick={() => setShowArchived(!showArchived)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: 6,
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                fontSize: 12,
-                color: '#9b9a97',
-                transition: 'background 100ms',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <Archive size={12} strokeWidth={1.6} />
-              {showArchived ? t('chat.hideArchived') : t('chat.showArchived')}
-            </button>
-
-            {showArchived &&
-              archivedConversations.map((c) => (
-                <ArchivedItem
-                  key={c.id}
-                  conv={c}
-                  onRestore={() => restoreConversation(c.id)}
-                  onDelete={() => deleteConversation(c.id)}
-                />
-              ))}
-          </div>
-        )}
       </div>
+
+      {/* Archived section — fixed at bottom */}
+      {!searchQuery && (
+        <div style={{ flexShrink: 0, borderTop: '1px solid #f3f4f6', padding: '0 8px' }}>
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+              padding: '6px 10px', borderRadius: 6, border: 'none',
+              background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#9b9a97',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            <Archive size={12} strokeWidth={1.6} />
+            {showArchived ? t('chat.hideArchived') : t('chat.showArchived')}
+          </button>
+          {showArchived && (
+            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+              {archivedConversations.map((c) => (
+                <ArchivedItem key={c.id} conv={c}
+                  onRestore={() => restoreConversation(c.id)}
+                  onDelete={() => deleteConversation(c.id)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-// ─── Main Content ───
-
-export function ChatContent() {
-  const t = useT()
-  const { activeId } = useChatContext()
-  const [hasKeys, setHasKeys] = useState<boolean | null>(null)
-  const [hasModel, setHasModel] = useState<boolean | null>(null)
-
-  // Check keys & model config on every mount (happens on each tab switch)
-  useEffect(() => {
-    api<{ id: string }[]>('/api/api-keys')
-      .then((keys) => setHasKeys(keys.length > 0))
-      .catch(() => setHasKeys(false))
-    api<{ conversation: { provider: string; modelId: string } }>('/api/model-config')
-      .then((cfg) => setHasModel(!!(cfg.conversation.provider && cfg.conversation.modelId)))
-      .catch(() => setHasModel(false))
-  }, [])
-
-  const { messages, isStreaming, isLoading, sendMessage, stopGeneration, reloadMessages } = useChat(activeId)
-  const chatInputRef = useRef<ChatInputHandle>(null)
-
-  const handleDropFiles = useCallback((files: File[]) => {
-    chatInputRef.current?.addFiles(files)
-  }, [])
-
-  const handleCompact = useCallback(async () => {
-    if (!activeId) return
-    try {
-      await api(`/api/conversations/${activeId}/compact`, { method: 'POST' })
-      reloadMessages()
-    } catch {}
-  }, [activeId, reloadMessages])
-
-  const needsSetup = hasKeys === false || hasModel === false
-  const goToSettings = () =>
-    window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'settings' }))
-
-  if (!activeId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 8 }}>
-        <p style={{ fontSize: 16, fontWeight: 500, color: '#374151' }}>
-          {t('chat.selectOrNew')}
-        </p>
-        {needsSetup && (
-          <p style={{ fontSize: 13, color: '#9b9a97' }}>
-            {t('chat.configureKeyHint')}{' '}
-            <button
-              onClick={goToSettings}
-              style={{ color: '#2383e2', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0 }}
-            >
-              {t('chat.settingsLink')}
-            </button>{' '}
-            {t('chat.configureKeyHint2')}
-          </p>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <DropZone onFiles={handleDropFiles}>
-      <div className="flex flex-col h-full">
-        <BindingIndicator conversationId={activeId} />
-        <CompactBanner conversationId={activeId} />
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          <MessageList messages={messages} isLoading={isLoading} />
-        </div>
-        <ChatInput
-          ref={chatInputRef}
-          isStreaming={isStreaming}
-          onSend={sendMessage}
-          onStop={stopGeneration}
-          onCompact={handleCompact}
-          disabled={needsSetup}
-        />
-      </div>
-    </DropZone>
-  )
-}
+// ChatContent is now in pages/ChatContent.tsx (standalone, accepts conversationId prop)

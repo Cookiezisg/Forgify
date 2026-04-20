@@ -53,6 +53,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     loadConversations()
   }, [loadConversations])
 
+  // Refresh when conversations change externally (e.g. new conversation from tool mini sidebar)
+  useEffect(() => {
+    const handler = () => loadConversations()
+    window.addEventListener('conversation:changed', handler)
+    return () => window.removeEventListener('conversation:changed', handler)
+  }, [loadConversations])
+
   // Load archived when toggled
   useEffect(() => {
     if (showArchived) loadArchived()
@@ -119,6 +126,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setConversations(prev => prev.filter(c => c.id !== id))
       if (activeId === id) setActiveId(null)
       if (showArchived) loadArchived()
+      // Tell TabContext to close any tab with this conversation
+      window.dispatchEvent(new CustomEvent('conversation:archived', { detail: id }))
     } catch {}
   }, [activeId, showArchived, loadArchived])
 
@@ -136,6 +145,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setConversations(prev => prev.filter(c => c.id !== id))
       setArchivedConversations(prev => prev.filter(c => c.id !== id))
       if (activeId === id) setActiveId(null)
+      window.dispatchEvent(new CustomEvent('conversation:archived', { detail: id }))
     } catch {}
   }, [activeId])
 

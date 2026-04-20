@@ -10,6 +10,11 @@ export interface ChatMessage {
   contentType: string
   modelId?: string
   forgeToolId?: string
+  forgeCode?: string          // Python code detected (no tool created yet)
+  forgeFuncName?: string      // Function name
+  forgeDisplayName?: string   // AI-generated display name from @display_name
+  forgeDescription?: string   // AI-generated description from @description
+  forgeCategory?: string      // Category from @category
   status: 'done' | 'streaming' | 'error'
 }
 
@@ -102,12 +107,16 @@ export function useChat(conversationId: string | null) {
           setMessages((prev) => setLastMessageError(prev, e.error))
         }
       ),
-      // Forge: when AI generates tool code, attach toolId to the last assistant message
-      onEvent<{ conversationId: string; toolId: string; funcName: string }>(
+      // Forge: when AI response contains Python code, mark the message for "save as tool" UI
+      onEvent<{ conversationId: string; toolId?: string; funcName: string; code?: string; displayName?: string; description?: string; category?: string }>(
         EventNames.ForgeCodeDetected,
         (e) => {
           if (e.conversationId !== conversationId) return
-          setMessages((prev) => attachForgeToolId(prev, e.toolId))
+          if (e.toolId) {
+            setMessages((prev) => attachForgeToolId(prev, e.toolId!))
+          } else if (e.code) {
+            setMessages((prev) => attachForgeCode(prev, e.code!, e.funcName, e.displayName, e.description, e.category))
+          }
         }
       ),
     ]
@@ -216,11 +225,22 @@ function setLastMessageError(messages: ChatMessage[], error: string): ChatMessag
 }
 
 function attachForgeToolId(messages: ChatMessage[], toolId: string): ChatMessage[] {
-  // Find the last assistant message with 'done' status and attach the toolId
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === 'assistant' && messages[i].status === 'done') {
       return messages.map((m, idx) =>
         idx === i ? { ...m, forgeToolId: toolId } : m
+      )
+    }
+  }
+  return messages
+}
+
+function attachForgeCode(messages: ChatMessage[], code: string, funcName: string, displayName?: string, description?: string, category?: string): ChatMessage[] {
+  // Find last assistant message (any status — event may arrive before ChatDone)
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') {
+      return messages.map((m, idx) =>
+        idx === i ? { ...m, forgeCode: code, forgeFuncName: funcName, forgeDisplayName: displayName, forgeDescription: description, forgeCategory: category } : m
       )
     }
   }

@@ -1,4 +1,4 @@
-.PHONY: install dev build build-go build-fe build-el clean
+.PHONY: install dev dev-new build build-go build-fe build-el clean reset
 
 # 安装所有依赖
 install:
@@ -23,6 +23,15 @@ build-fe:
 # 仅编译 Electron TS
 build-el:
 	npx tsc -p electron/tsconfig.json
+
+# 开发模式（清理数据重新开始）
+dev-new: reset build-go
+	npm run dev
+
+# 清理用户数据（SQLite + venvs），前端 localStorage 在浏览器中自动重置
+reset:
+	rm -rf "$(HOME)/Library/Application Support/Forgify"
+	@echo "User data cleared (database, venvs, configs)"
 
 # 清理构建产物
 clean:

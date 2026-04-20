@@ -1,7 +1,7 @@
 # Forgify 开发进度
 
-**更新于**：2026-04-20  
-**当前状态**：Tier 1-4 全部完成，V1.1 架构迭代规划中
+**更新于**：2026-04-21  
+**当前状态**：Tier 1-4 全部完成，V1.1 大部分完成（Tab 系统 + 分屏 + 工具增强 + 版本历史）
 
 > **V1.1 迭代**：前端 Tab 架构重构 + Chat+Tool 分屏 + 工具系统增强。
 > 详见 `Documents/V1.1/PRD_1.1.md` 和 `Documents/V1.1/TDD_1.1.md`。
@@ -168,3 +168,8 @@ H2 → H1, I1, I2, I3
 | 2026-04-20 | Tier 4 全部完成：Python沙箱(uv+venv+subprocess)，工具CRUD+测试历史，forge解析器(AST提取函数/参数/依赖)，4个内置工具(go:embed)，Monaco代码编辑器，工具导入导出 |
 | 2026-04-20 | Tier 4 补全：forge 锻造链路（ForgeCodeBlock+TestParamsModal+SaveToolModal），自动绑定，forgeToolId持久化 |
 | 2026-04-20 | V1.1 PRD+TDD 完成：Tab 架构重构 + Chat+Tool 分屏 + 工具系统增强（inline编辑/标签/版本/AI修复） |
+| 2026-04-20 | V1.1 Phase 1+2+3 实现：TabContext/TabBar/NavSidebar/LayoutRouter/App重构，ChatToolLayout分屏，后端标签/版本/测试用例/元数据API，AI工具列表注入 |
+| 2026-04-21 | V1.1 Phase 4 完善：Tab 拖拽排序+右键菜单(关闭/关闭其他/关闭右侧/全部关闭/固定)，TabBar空白区+6px顶栏可拖窗口 |
+| 2026-04-21 | 工具元数据双向同步：NormalizeCodeAnnotations 确保代码 `# @` 注释与 DB 一致，UI 改名/描述/分类→代码同步更新，@custom/@builtin 标注，system prompt 加 @version |
+| 2026-04-21 | 工具编辑器增强：InlineSelect 分类下拉编辑，版本 badge 可点击进入历史模式，VersionHistoryView（版本列表+Monaco DiffEditor side-by-side），恢复任意历史版本 |
+| 2026-04-21 | ChatToolLayout 双向面板折叠：左侧聊天可折叠（渐变遮罩浮动按钮），右侧工具可折叠（已有），互斥约束（不可同时折叠） |

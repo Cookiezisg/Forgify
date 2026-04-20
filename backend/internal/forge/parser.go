@@ -8,7 +8,8 @@ import (
 // ParsedParam represents a function parameter extracted from Python code.
 type ParsedParam struct {
 	Name     string `json:"name"`
-	Type     string `json:"type"`
+	Type     string `json:"type"`               // Base type for logic: "list", "str", "int"
+	FullType string `json:"fullType,omitempty"`  // Full type for display: "list[int]", "Optional[str]"
 	Required bool   `json:"required"`
 	Default  string `json:"default,omitempty"`
 }
@@ -51,7 +52,14 @@ type ParseResult struct {
 }
 
 // ParseFunction extracts function metadata from Python source code.
+// Uses Python AST (accurate) with regex fallback.
 func ParseFunction(code string) *ParseResult {
+	// Try AST parser first (100% accurate)
+	if astResult, _, err := ParseFunctionAST(code); err == nil && astResult.FuncName != "" {
+		return astResult
+	}
+
+	// Fallback to regex parser
 	result := &ParseResult{}
 	lines := strings.Split(code, "\n")
 
@@ -113,6 +121,137 @@ func ExtractCodeBlock(content string) string {
 		return ""
 	}
 	return strings.TrimSpace(rest[:end])
+}
+
+// CodeMeta holds metadata extracted from @-prefixed comments in Python code.
+type CodeMeta struct {
+	DisplayName string
+	Description string
+	Category    string
+	Version     string
+	RequiresKey string
+	IsBuiltin   bool
+}
+
+// ParseMeta extracts @display_name, @description, @category etc. from Python code comments.
+// Works for both builtin tools (@builtin required) and user-generated tools (@builtin optional).
+func ParseMeta(code string) *CodeMeta {
+	lines := strings.Split(code, "\n")
+	meta := &CodeMeta{}
+	found := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "#") {
+			if trimmed != "" {
+				break
+			}
+			continue
+		}
+		comment := strings.TrimPrefix(trimmed, "#")
+		comment = strings.TrimSpace(comment)
+
+		switch {
+		case comment == "@builtin":
+			meta.IsBuiltin = true
+			found = true
+		case comment == "@custom":
+			meta.IsBuiltin = false
+			found = true
+		case strings.HasPrefix(comment, "@version "):
+			meta.Version = strings.TrimPrefix(comment, "@version ")
+			found = true
+		case strings.HasPrefix(comment, "@category "):
+			meta.Category = strings.TrimPrefix(comment, "@category ")
+			found = true
+		case strings.HasPrefix(comment, "@display_name "):
+			meta.DisplayName = strings.TrimPrefix(comment, "@display_name ")
+			found = true
+		case strings.HasPrefix(comment, "@description "):
+			meta.Description = strings.TrimPrefix(comment, "@description ")
+			found = true
+		case strings.HasPrefix(comment, "@requires_key "):
+			meta.RequiresKey = strings.TrimPrefix(comment, "@requires_key ")
+			found = true
+		}
+	}
+
+	if !found {
+		return nil
+	}
+	if meta.Category == "" {
+		meta.Category = "other"
+	}
+	if meta.Version == "" {
+		meta.Version = "1.0"
+	}
+	return meta
+}
+
+// NormalizeCodeAnnotations ensures the # @ annotation block at the top of Python code
+// matches the given metadata fields. Replaces any existing annotations with a complete,
+// consistently ordered block. The function is idempotent.
+func NormalizeCodeAnnotations(code, displayName, description, category, version string, isBuiltin bool, requiresKey string) string {
+	if code == "" {
+		return code
+	}
+
+	lines := strings.Split(code, "\n")
+
+	// Find where the header ends (first non-comment, non-blank line)
+	headerEnd := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			headerEnd = i + 1
+			continue
+		}
+		break
+	}
+
+	// From header, keep non-annotation comments; strip @ lines and blanks
+	var keptComments []string
+	for _, line := range lines[:headerEnd] {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# @") || trimmed == "" {
+			continue
+		}
+		keptComments = append(keptComments, line)
+	}
+
+	// Build new annotation block (fixed order)
+	var block []string
+	if isBuiltin {
+		block = append(block, "# @builtin")
+	} else {
+		block = append(block, "# @custom")
+	}
+	if version == "" {
+		version = "1.0"
+	}
+	block = append(block, "# @version "+version)
+	if category == "" {
+		category = "other"
+	}
+	block = append(block, "# @category "+category)
+	if displayName != "" {
+		block = append(block, "# @display_name "+displayName)
+	}
+	if description != "" {
+		block = append(block, "# @description "+description)
+	}
+	if requiresKey != "" {
+		block = append(block, "# @requires_key "+requiresKey)
+	}
+
+	// Assemble: annotations → kept comments → blank separator → code body
+	var result []string
+	result = append(result, block...)
+	result = append(result, keptComments...)
+	result = append(result, "") // blank separator
+	result = append(result, lines[headerEnd:]...)
+
+	return strings.Join(result, "\n")
 }
 
 func normalizeType(t string) string {

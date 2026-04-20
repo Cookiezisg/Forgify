@@ -108,20 +108,34 @@ AI 生成新版本代码，再次可测试
 ## 4. 工具规格约束
 
 AI 生成的工具代码必须满足：
+- 顶部必须有 4 个 `# @` 元数据标注（version, category, display_name, description）
 - 只有一个顶层函数，函数名即工具名（snake_case）
-- 参数必须有类型注解（`str`、`int`、`float`、`bool`、`list`、`dict`）
+- 参数必须有类型注解（`str`、`int`、`float`、`bool`、`list`、`dict`），支持泛型如 `list[int]`
 - 返回值类型为 `dict`
 - 有 docstring 说明功能
 - 可以使用 `import`（依赖会被自动安装）
 
 示例：
 ```python
+# @version 1.0
+# @category email
+# @display_name 发送邮件
+# @description 通过 SMTP 发送邮件到指定地址
+
 def send_email(to: str, subject: str, body: str) -> dict:
     """通过 SMTP 发送邮件到指定地址"""
     import smtplib
     ...
     return {"success": True, "message": "邮件已发送"}
 ```
+
+**元数据标注说明：**
+- `@version` — 语义版本号，创建时为 1.0
+- `@category` — 枚举值：email/data/web/file/system/other
+- `@display_name` — 中文名，不超过 10 字
+- `@description` — 一句话描述，不超过 30 字
+- 用户创建的工具自动加 `# @custom`，内置工具加 `# @builtin`
+- 后端 `NormalizeCodeAnnotations()` 确保标注始终与 DB 字段一致
 
 ---
 

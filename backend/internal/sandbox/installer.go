@@ -24,21 +24,35 @@ func uvBinName() string {
 
 // findUV locates the uv binary. Checks:
 // 1. Same directory as the Forgify executable (bundled)
-// 2. System PATH
+// 2. Common install locations (~/.local/bin, ~/.cargo/bin)
+// 3. System PATH
 func findUV() (string, error) {
+	name := uvBinName()
+
 	// Check bundled location
 	exe, err := os.Executable()
 	if err == nil {
-		bundled := filepath.Join(filepath.Dir(exe), uvBinName())
+		bundled := filepath.Join(filepath.Dir(exe), name)
 		if _, err := os.Stat(bundled); err == nil {
 			return bundled, nil
 		}
 	}
 
+	// Check common install locations (uv installs to ~/.local/bin)
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		for _, dir := range []string{".local/bin", ".cargo/bin"} {
+			p := filepath.Join(home, dir, name)
+			if _, err := os.Stat(p); err == nil {
+				return p, nil
+			}
+		}
+	}
+
 	// Fall back to system PATH
-	path, err := exec.LookPath(uvBinName())
+	path, err := exec.LookPath(name)
 	if err != nil {
-		return "", fmt.Errorf("uv not found: install uv or place it next to the Forgify binary")
+		return "", fmt.Errorf("uv not found: install uv (curl -LsSf https://astral.sh/uv/install.sh | sh)")
 	}
 	return path, nil
 }

@@ -10,8 +10,10 @@
 | 决策 | 选择 | 理由 |
 |---|---|---|
 | 画布引擎 | React Flow | 成熟、文档完善、支持自定义节点 |
+| 布局容器 | WorkflowLayout（全宽）/ ChatWorkflowLayout（分屏） | V1.1 Tab+Layout 架构，与 ChatToolLayout 对称 |
 | 节点位置存储 | FlowDefinition 的 node.position 字段 | 统一格式，Go 层不需要知道 UI 坐标 |
-| 画布状态同步 | canvas.updated 事件（A3）| 对话侧订阅，AI 感知工作流变化 |
+| 画布状态同步 | SSE 事件（`workflow.updated`）| 与 `forge.code_updated` 相同模式 |
+| LLM 编排 | Eino（`github.com/cloudwego/eino`）| 与工具系统相同的 LLM 框架 |
 | 节点配置面板 | 画布底部滑出的固定 Panel | 不遮挡节点视图 |
 
 ---

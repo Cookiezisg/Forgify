@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/sunweilin/forgify/internal/forge"
 	"github.com/sunweilin/forgify/internal/sandbox"
 	"github.com/sunweilin/forgify/internal/service"
 )
@@ -48,13 +49,31 @@ func (s *Server) createTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse code with AST to extract parameters and requirements
+	parsed := forge.ParseFunction(req.Code)
+	var params []service.ToolParameter
+	var reqs []string
+	if parsed != nil {
+		for _, p := range parsed.Params {
+			params = append(params, service.ToolParameter{
+				Name: p.Name, Type: p.Type, FullType: p.FullType,
+				Required: p.Required, Default: p.Default,
+			})
+		}
+		reqs = parsed.Requirements
+	}
+	if len(reqs) == 0 && len(req.Requirements) > 0 {
+		reqs = req.Requirements
+	}
+
 	tool := &service.Tool{
 		Name:         req.Name,
 		DisplayName:  req.DisplayName,
 		Description:  req.Description,
 		Code:         req.Code,
 		Category:     req.Category,
-		Requirements: req.Requirements,
+		Requirements: reqs,
+		Parameters:   params,
 		Status:       "draft",
 	}
 	if err := s.toolSvc.Save(tool); err != nil {
@@ -91,7 +110,22 @@ func (s *Server) updateTool(w http.ResponseWriter, r *http.Request) {
 	existing.Description = req.Description
 	existing.Code = req.Code
 	existing.Category = req.Category
-	// Re-parse will be done by forge/parser when integrated
+
+	// Re-parse parameters from code via AST
+	if parsed := forge.ParseFunction(req.Code); parsed != nil {
+		var params []service.ToolParameter
+		for _, p := range parsed.Params {
+			params = append(params, service.ToolParameter{
+				Name: p.Name, Type: p.Type, FullType: p.FullType,
+				Required: p.Required, Default: p.Default,
+			})
+		}
+		existing.Parameters = params
+		if len(parsed.Requirements) > 0 {
+			existing.Requirements = parsed.Requirements
+		}
+	}
+
 	if err := s.toolSvc.Save(existing); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return

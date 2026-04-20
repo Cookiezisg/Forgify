@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Search, Upload, MessageCircle } from 'lucide-react'
+import { Plus, Search, Upload } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ToolCard } from '@/components/tools/ToolCard'
-import { ToolMainView } from '@/components/tools/ToolMainView'
+import { useTabContext } from '@/context/TabContext'
 import { useT } from '@/lib/i18n'
 
 interface Tool {
@@ -21,10 +21,10 @@ const CATEGORIES = ['all', 'email', 'data', 'web', 'file', 'system', 'other'] as
 
 export function AssetsLeftPanel() {
   const t = useT()
+  const { openTab } = useTabContext()
   const [tools, setTools] = useState<Tool[]>([])
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
-  const [activeId, setActiveId] = useState<string | null>(null)
 
   const load = useCallback(() => {
     const params = new URLSearchParams()
@@ -62,10 +62,9 @@ export function AssetsLeftPanel() {
     input.click()
   }
 
-  // Expose activeId to content panel
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('assets:toolChange', { detail: activeId }))
-  }, [activeId])
+  const handleOpenTool = useCallback((tool: Tool) => {
+    openTab({ layout: 'tool', label: tool.displayName, toolId: tool.id })
+  }, [openTab])
 
   const categoryLabel = (c: string) => {
     const map: Record<string, () => string> = {
@@ -153,8 +152,8 @@ export function AssetsLeftPanel() {
           </div>
         ) : (
           tools.map((tool) => (
-            <ToolCard key={tool.id} tool={tool} active={activeId === tool.id}
-              onClick={() => setActiveId(tool.id)} />
+            <ToolCard key={tool.id} tool={tool} active={false}
+              onClick={() => handleOpenTool(tool)} />
           ))
         )}
       </div>
@@ -162,118 +161,4 @@ export function AssetsLeftPanel() {
   )
 }
 
-interface AssetConversation {
-  id: string
-  title: string
-  updatedAt: string
-}
-
-function AssetMiniSidebar({ toolId }: { toolId: string }) {
-  const t = useT()
-  const [convs, setConvs] = useState<AssetConversation[]>([])
-
-  useEffect(() => {
-    api<AssetConversation[]>(`/api/asset-conversations/${toolId}`)
-      .then(setConvs)
-      .catch(() => setConvs([]))
-  }, [toolId])
-
-  const handleNewConv = async () => {
-    try {
-      await api('/api/conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetId: toolId, assetType: 'tool' }),
-      })
-      // Navigate to chat tab
-      window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'chat' }))
-    } catch {}
-  }
-
-  const handleGoToConv = (convId: string) => {
-    // Navigate to chat tab and select conversation
-    window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'chat' }))
-  }
-
-  return (
-    <div style={{
-      width: 200, borderRight: '1px solid #e5e7eb', flexShrink: 0,
-      display: 'flex', flexDirection: 'column', height: '100%',
-    }}>
-      <div style={{ padding: '10px 12px 6px' }}>
-        <p style={{ fontSize: 11, fontWeight: 600, color: '#9b9a97', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-          {t('nav.chat')}
-        </p>
-        <button onClick={handleNewConv} style={{
-          display: 'flex', alignItems: 'center', gap: 4, width: '100%',
-          padding: '5px 8px', borderRadius: 5, border: 'none',
-          background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#374151',
-          transition: 'background 100ms',
-        }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-        >
-          <Plus size={12} strokeWidth={2} />
-          {t('chat.newChat')}
-        </button>
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
-        {convs.length === 0 ? (
-          <p style={{ fontSize: 11, color: '#c7c7c5', padding: '8px 6px' }}>{t('chat.noChats')}</p>
-        ) : (
-          convs.map((c) => (
-            <div key={c.id} onClick={() => handleGoToConv(c.id)} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '5px 8px', borderRadius: 5, cursor: 'pointer',
-              fontSize: 12, color: '#374151', transition: 'background 100ms',
-            }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <MessageCircle size={11} strokeWidth={1.6} style={{ color: '#9b9a97', flexShrink: 0 }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {c.title}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  )
-}
-
-export function AssetsContent() {
-  const t = useT()
-  const [activeToolId, setActiveToolId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const handler = (e: Event) => setActiveToolId((e as CustomEvent).detail)
-    window.addEventListener('assets:toolChange', handler)
-    return () => window.removeEventListener('assets:toolChange', handler)
-  }, [])
-
-  if (!activeToolId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 8 }}>
-        <p style={{ fontSize: 16, fontWeight: 500, color: '#374151' }}>
-          {t('tools.emptyTitle')}
-        </p>
-        <p style={{ fontSize: 13, color: '#9b9a97' }}>
-          {t('tools.emptyHint')}
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex h-full">
-      <AssetMiniSidebar toolId={activeToolId} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <ToolMainView
-          toolId={activeToolId}
-          onDeleted={() => setActiveToolId(null)}
-        />
-      </div>
-    </div>
-  )
-}
+// AssetsContent is no longer needed — tools open as tabs via LayoutRouter

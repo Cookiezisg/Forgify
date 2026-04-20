@@ -168,3 +168,4 @@ H2 → H1, I1, I2, I3
 | 2026-04-20 | Tier 4 全部完成：Python沙箱(uv+venv+subprocess)，工具CRUD+测试历史，forge解析器(AST提取函数/参数/依赖)，4个内置工具(go:embed)，Monaco代码编辑器，工具导入导出 |
 | 2026-04-20 | Tier 4 补全：forge 锻造链路（ForgeCodeBlock+TestParamsModal+SaveToolModal），自动绑定，forgeToolId持久化 |
 | 2026-04-20 | V1.1 PRD+TDD 完成：Tab 架构重构 + Chat+Tool 分屏 + 工具系统增强（inline编辑/标签/版本/AI修复） |
+| 2026-04-20 | V1.1 Phase 1+2+3 实现：TabContext/TabBar/NavSidebar/LayoutRouter/App重构，ChatToolLayout分屏，后端标签/版本/测试用例/元数据API，AI工具列表注入 |

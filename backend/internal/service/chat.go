@@ -226,6 +226,10 @@ func (s *ChatService) doStream(
 }
 
 func (s *ChatService) loadHistory(conversationID string) ([]*schema.Message, error) {
+	// Build tool summary BEFORE opening DB rows to avoid single-connection deadlock.
+	// SQLite with MaxOpenConns(1) means we can't have two queries open simultaneously.
+	toolSummary := s.buildToolSummary()
+
 	rows, err := storage.DB().Query(`
 		SELECT role, content FROM messages
 		WHERE conversation_id=? ORDER BY created_at ASC`, conversationID)
@@ -234,9 +238,12 @@ func (s *ChatService) loadHistory(conversationID string) ([]*schema.Message, err
 	}
 	defer rows.Close()
 
-	// Always inject the forge system prompt so the AI knows tool code format
+	// Inject system prompts
 	msgs := []*schema.Message{
 		schema.SystemMessage(forge.ForgeSystemPrompt),
+	}
+	if toolSummary != "" {
+		msgs = append(msgs, schema.SystemMessage(toolSummary))
 	}
 
 	for rows.Next() {
@@ -318,6 +325,24 @@ func (s *ChatService) detectForgeCode(conversationID, content string) {
 		"toolId":         tool.ID,
 		"funcName":       detected.FuncName,
 	})
+}
+
+func (s *ChatService) buildToolSummary() string {
+	tools, _ := s.toolSvc.List("", "")
+	if len(tools) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("[用户已有工具]\n")
+	for _, t := range tools {
+		bi := ""
+		if t.Builtin {
+			bi = ", 内置"
+		}
+		sb.WriteString(fmt.Sprintf("- %s (%s, %s%s)\n", t.Name, t.Category, t.Status, bi))
+	}
+	sb.WriteString(fmt.Sprintf("共 %d 个工具。如果用户需要的功能已有工具可用，优先推荐使用已有工具。\n", len(tools)))
+	return sb.String()
 }
 
 func classifyError(err error) string {

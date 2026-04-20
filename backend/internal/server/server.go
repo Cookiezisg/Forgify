@@ -43,7 +43,7 @@ func New() *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -92,6 +92,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/tools/{id}", s.deleteTool)
 	s.mux.HandleFunc("POST /api/tools/{id}/run", s.runTool)
 	s.mux.HandleFunc("GET /api/tools/{id}/test-history", s.listToolTestHistory)
+	s.mux.HandleFunc("PATCH /api/tools/{id}/meta", s.updateToolMeta)
+	s.mux.HandleFunc("GET /api/tools/{id}/tags", s.listToolTags)
+	s.mux.HandleFunc("POST /api/tools/{id}/tags", s.addToolTag)
+	s.mux.HandleFunc("DELETE /api/tools/{id}/tags/{tag}", s.removeToolTag)
+	s.mux.HandleFunc("GET /api/tools/{id}/versions", s.listToolVersions)
+	s.mux.HandleFunc("POST /api/tools/{id}/versions/{v}/restore", s.restoreToolVersion)
+	s.mux.HandleFunc("GET /api/tools/{id}/test-cases", s.listToolTestCases)
+	s.mux.HandleFunc("POST /api/tools/{id}/test-cases", s.saveToolTestCase)
+	s.mux.HandleFunc("DELETE /api/test-cases/{id}", s.deleteToolTestCase)
 	s.mux.HandleFunc("GET /api/tools/{id}/export", s.exportTool)
 	s.mux.HandleFunc("POST /api/tools/import/parse", s.importToolParse)
 	s.mux.HandleFunc("POST /api/tools/import/confirm", s.importToolConfirm)

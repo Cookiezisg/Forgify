@@ -1,14 +1,8 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { Plus, MessageCircle, Search, Archive, RotateCcw } from 'lucide-react'
-import { api } from '@/lib/api'
-import { useChat } from '@/hooks/useChat'
-import { MessageList } from '@/components/chat/MessageList'
-import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput'
-import { DropZone } from '@/components/chat/DropZone'
-import { CompactBanner } from '@/components/chat/CompactBanner'
-import { BindingIndicator } from '@/components/chat/BindingIndicator'
 import { ContextMenu } from '@/components/common/ContextMenu'
 import { useChatContext, type Conversation } from '@/context/ChatContext'
+import { useTabContext } from '@/context/TabContext'
 import { useT } from '@/lib/i18n'
 
 // ─── Relative time helper ───
@@ -262,8 +256,6 @@ export function ChatLeftPanel() {
   const {
     conversations,
     archivedConversations,
-    activeId,
-    setActiveId,
     createConversation,
     renameConversation,
     archiveConversation,
@@ -272,6 +264,11 @@ export function ChatLeftPanel() {
     showArchived,
     setShowArchived,
   } = useChatContext()
+  const { openTab, activeTabId, tabs } = useTabContext()
+
+  // Derive activeId from the currently active tab's conversationId
+  const activeTab = tabs.find(t => t.id === activeTabId)
+  const activeId = activeTab?.conversationId ?? null
 
   const [searchQuery, setSearchQuery] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -329,7 +326,12 @@ export function ChatLeftPanel() {
       {/* New chat button */}
       <div style={{ padding: '2px 12px 6px' }}>
         <button
-          onClick={createConversation}
+          onClick={async () => {
+            const conv = await createConversation()
+            if (conv) {
+              openTab({ layout: 'chat', label: conv.title, conversationId: conv.id })
+            }
+          }}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -380,7 +382,15 @@ export function ChatLeftPanel() {
                 key={c.id}
                 conv={c}
                 active={activeId === c.id}
-                onClick={() => setActiveId(c.id)}
+                onClick={() => {
+                  const layout = c.assetType === 'tool' && c.assetId ? 'chat-tool' as const : 'chat' as const
+                  openTab({
+                    layout,
+                    label: c.title,
+                    conversationId: c.id,
+                    toolId: layout === 'chat-tool' ? (c.assetId ?? undefined) : undefined,
+                  })
+                }}
                 onRename={() => setRenamingId(c.id)}
                 onArchive={() => archiveConversation(c.id)}
                 onDelete={() => deleteConversation(c.id)}
@@ -431,82 +441,4 @@ export function ChatLeftPanel() {
   )
 }
 
-// ─── Main Content ───
-
-export function ChatContent() {
-  const t = useT()
-  const { activeId } = useChatContext()
-  const [hasKeys, setHasKeys] = useState<boolean | null>(null)
-  const [hasModel, setHasModel] = useState<boolean | null>(null)
-
-  // Check keys & model config on every mount (happens on each tab switch)
-  useEffect(() => {
-    api<{ id: string }[]>('/api/api-keys')
-      .then((keys) => setHasKeys(keys.length > 0))
-      .catch(() => setHasKeys(false))
-    api<{ conversation: { provider: string; modelId: string } }>('/api/model-config')
-      .then((cfg) => setHasModel(!!(cfg.conversation.provider && cfg.conversation.modelId)))
-      .catch(() => setHasModel(false))
-  }, [])
-
-  const { messages, isStreaming, isLoading, sendMessage, stopGeneration, reloadMessages } = useChat(activeId)
-  const chatInputRef = useRef<ChatInputHandle>(null)
-
-  const handleDropFiles = useCallback((files: File[]) => {
-    chatInputRef.current?.addFiles(files)
-  }, [])
-
-  const handleCompact = useCallback(async () => {
-    if (!activeId) return
-    try {
-      await api(`/api/conversations/${activeId}/compact`, { method: 'POST' })
-      reloadMessages()
-    } catch {}
-  }, [activeId, reloadMessages])
-
-  const needsSetup = hasKeys === false || hasModel === false
-  const goToSettings = () =>
-    window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'settings' }))
-
-  if (!activeId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 8 }}>
-        <p style={{ fontSize: 16, fontWeight: 500, color: '#374151' }}>
-          {t('chat.selectOrNew')}
-        </p>
-        {needsSetup && (
-          <p style={{ fontSize: 13, color: '#9b9a97' }}>
-            {t('chat.configureKeyHint')}{' '}
-            <button
-              onClick={goToSettings}
-              style={{ color: '#2383e2', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0 }}
-            >
-              {t('chat.settingsLink')}
-            </button>{' '}
-            {t('chat.configureKeyHint2')}
-          </p>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <DropZone onFiles={handleDropFiles}>
-      <div className="flex flex-col h-full">
-        <BindingIndicator conversationId={activeId} />
-        <CompactBanner conversationId={activeId} />
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          <MessageList messages={messages} isLoading={isLoading} />
-        </div>
-        <ChatInput
-          ref={chatInputRef}
-          isStreaming={isStreaming}
-          onSend={sendMessage}
-          onStop={stopGeneration}
-          onCompact={handleCompact}
-          disabled={needsSetup}
-        />
-      </div>
-    </DropZone>
-  )
-}
+// ChatContent is now in pages/ChatContent.tsx (standalone, accepts conversationId prop)

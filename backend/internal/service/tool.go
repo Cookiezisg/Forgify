@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,6 +69,19 @@ func (s *ToolService) Save(t *Tool) error {
 	}
 	if t.Parameters == nil {
 		t.Parameters = []ToolParameter{}
+	}
+
+	// Auto-version: if updating and code changed, save the old version
+	if t.ID != "" {
+		var oldCode string
+		if err := storage.DB().QueryRow(`SELECT code FROM tools WHERE id=?`, t.ID).Scan(&oldCode); err == nil {
+			if oldCode != "" && oldCode != t.Code {
+				oldLines := strings.Split(oldCode, "\n")
+				newLines := strings.Split(t.Code, "\n")
+				summary := fmt.Sprintf("+%d / -%d 行", countDiff(oldLines, newLines), countDiff(newLines, oldLines))
+				s.SaveVersion(t.ID, oldCode, summary)
+			}
+		}
 	}
 
 	reqJSON, _ := json.Marshal(t.Requirements)
@@ -205,6 +219,166 @@ func (s *ToolService) ListTestHistory(toolID string) ([]*ToolTestRecord, error) 
 		records = []*ToolTestRecord{}
 	}
 	return records, rows.Err()
+}
+
+// ─── Metadata editing ───
+
+func (s *ToolService) UpdateMeta(id string, displayName, description, category *string) error {
+	sets := []string{"updated_at=datetime('now')"}
+	args := []any{}
+	if displayName != nil {
+		sets = append(sets, "display_name=?")
+		args = append(args, *displayName)
+	}
+	if description != nil {
+		sets = append(sets, "description=?")
+		args = append(args, *description)
+	}
+	if category != nil {
+		sets = append(sets, "category=?")
+		args = append(args, *category)
+	}
+	args = append(args, id)
+	q := "UPDATE tools SET " + strings.Join(sets, ", ") + " WHERE id=?"
+	_, err := storage.DB().Exec(q, args...)
+	return err
+}
+
+// ─── Tags ───
+
+func (s *ToolService) AddTag(id, tag string) error {
+	_, err := storage.DB().Exec(`INSERT OR IGNORE INTO tool_tags (tool_id, tag) VALUES (?, ?)`, id, tag)
+	return err
+}
+
+func (s *ToolService) RemoveTag(id, tag string) error {
+	_, err := storage.DB().Exec(`DELETE FROM tool_tags WHERE tool_id=? AND tag=?`, id, tag)
+	return err
+}
+
+func (s *ToolService) ListTags(id string) ([]string, error) {
+	rows, err := storage.DB().Query(`SELECT tag FROM tool_tags WHERE tool_id=? ORDER BY tag`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tags []string
+	for rows.Next() {
+		var tag string
+		rows.Scan(&tag)
+		tags = append(tags, tag)
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	return tags, nil
+}
+
+// ─── Versions ───
+
+type ToolVersion struct {
+	ID            string    `json:"id"`
+	ToolID        string    `json:"toolId"`
+	Version       int       `json:"version"`
+	Code          string    `json:"code"`
+	ChangeSummary string    `json:"changeSummary"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+func (s *ToolService) SaveVersion(toolID, code, summary string) error {
+	// Get next version number
+	var maxVer int
+	storage.DB().QueryRow(`SELECT COALESCE(MAX(version), 0) FROM tool_versions WHERE tool_id=?`, toolID).Scan(&maxVer)
+	_, err := storage.DB().Exec(`
+		INSERT INTO tool_versions (id, tool_id, version, code, change_summary)
+		VALUES (?, ?, ?, ?, ?)`,
+		uuid.NewString(), toolID, maxVer+1, code, summary)
+	return err
+}
+
+func (s *ToolService) ListVersions(toolID string) ([]*ToolVersion, error) {
+	rows, err := storage.DB().Query(`
+		SELECT id, tool_id, version, code, change_summary, created_at
+		FROM tool_versions WHERE tool_id=? ORDER BY version DESC LIMIT 50`, toolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var versions []*ToolVersion
+	for rows.Next() {
+		v := &ToolVersion{}
+		var created sql.NullString
+		if err := rows.Scan(&v.ID, &v.ToolID, &v.Version, &v.Code, &v.ChangeSummary, &created); err != nil {
+			return nil, err
+		}
+		v.CreatedAt = parseSQLTime(created)
+		versions = append(versions, v)
+	}
+	if versions == nil {
+		versions = []*ToolVersion{}
+	}
+	return versions, nil
+}
+
+func (s *ToolService) RestoreVersion(toolID string, version int) error {
+	var code string
+	err := storage.DB().QueryRow(`SELECT code FROM tool_versions WHERE tool_id=? AND version=?`,
+		toolID, version).Scan(&code)
+	if err != nil {
+		return fmt.Errorf("version %d not found", version)
+	}
+	tool, err := s.Get(toolID)
+	if err != nil || tool == nil {
+		return fmt.Errorf("tool not found")
+	}
+	tool.Code = code
+	return s.Save(tool)
+}
+
+// ─── Test Cases ───
+
+type ToolTestCase struct {
+	ID         string    `json:"id"`
+	ToolID     string    `json:"toolId"`
+	Name       string    `json:"name"`
+	ParamsJSON string    `json:"paramsJson"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+func (s *ToolService) SaveTestCase(toolID, name, paramsJSON string) error {
+	_, err := storage.DB().Exec(`
+		INSERT INTO tool_test_cases (id, tool_id, name, params_json) VALUES (?, ?, ?, ?)`,
+		uuid.NewString(), toolID, name, paramsJSON)
+	return err
+}
+
+func (s *ToolService) ListTestCases(toolID string) ([]*ToolTestCase, error) {
+	rows, err := storage.DB().Query(`
+		SELECT id, tool_id, name, params_json, created_at
+		FROM tool_test_cases WHERE tool_id=? ORDER BY created_at DESC`, toolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cases []*ToolTestCase
+	for rows.Next() {
+		c := &ToolTestCase{}
+		var created sql.NullString
+		if err := rows.Scan(&c.ID, &c.ToolID, &c.Name, &c.ParamsJSON, &created); err != nil {
+			return nil, err
+		}
+		c.CreatedAt = parseSQLTime(created)
+		cases = append(cases, c)
+	}
+	if cases == nil {
+		cases = []*ToolTestCase{}
+	}
+	return cases, nil
+}
+
+func (s *ToolService) DeleteTestCase(id string) error {
+	_, err := storage.DB().Exec(`DELETE FROM tool_test_cases WHERE id=?`, id)
+	return err
 }
 
 func (s *ToolService) scan(query string, args ...any) ([]*Tool, error) {
@@ -370,6 +544,21 @@ func parseSQLTime(s sql.NullString) time.Time {
 		}
 	}
 	return time.Now()
+}
+
+// countDiff counts lines in a that are not in b (simple line diff).
+func countDiff(a, b []string) int {
+	bSet := make(map[string]bool, len(b))
+	for _, line := range b {
+		bSet[line] = true
+	}
+	count := 0
+	for _, line := range a {
+		if !bSet[line] {
+			count++
+		}
+	}
+	return count
 }
 
 // nullStr converts empty string to SQL NULL.

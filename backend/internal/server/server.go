@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/sunweilin/forgify/internal/events"
+	"github.com/sunweilin/forgify/internal/model"
 	"github.com/sunweilin/forgify/internal/service"
 )
 
@@ -21,7 +22,12 @@ func New() *Server {
 	broker := newSSEBroker()
 	bridge := events.NewBridge(broker.publish)
 
-	convSvc := service.NewConversationService(nil, bridge) // gateway set later
+	keyProvider := func(provider string) (key, baseURL string, err error) {
+		return service.GetRawKeyForProvider(provider)
+	}
+	gateway := model.New(keyProvider, bridge)
+
+	convSvc := service.NewConversationService(gateway, bridge)
 	toolSvc := service.NewToolService()
 
 	s := &Server{

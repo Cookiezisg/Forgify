@@ -190,6 +190,12 @@ func doStream(
 	bridge *events.Bridge,
 ) {
 	defer func() {
+		if r := recover(); r != nil {
+			bridge.Emit(events.ChatError, map[string]any{
+				"conversationId": conversationID,
+				"error":          fmt.Sprintf("内部错误：%v", r),
+			})
+		}
 		cancel()
 		cancelsMu.Lock()
 		delete(cancels, conversationID)

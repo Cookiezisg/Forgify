@@ -1,13 +1,29 @@
-// SSE-based event system — replaces @wailsio/runtime Events
+// SSE-based event system with auto-reconnection
 
 import { setBackendPort } from './api'
 
-let source: EventSource | null = null;
+let source: EventSource | null = null
+let backendPort = 0
 
 export function initBackend(port: number): void {
+  backendPort = port
   setBackendPort(port)
-  if (source) source.close();
-  source = new EventSource(`http://127.0.0.1:${port}/events`);
+  connect()
+}
+
+function connect(): void {
+  if (source) source.close()
+  source = new EventSource(`http://127.0.0.1:${backendPort}/events`)
+
+  source.addEventListener('error', () => {
+    // EventSource has native reconnection, but if it gives up (CLOSED state),
+    // we do a manual reconnect after a delay.
+    if (source?.readyState === EventSource.CLOSED) {
+      setTimeout(() => {
+        if (backendPort > 0) connect()
+      }, 3000)
+    }
+  })
 }
 
 export const EventNames = {

@@ -161,7 +161,10 @@ func (s *ConversationService) AutoTitle(ctx context.Context, convID, userMsg, as
 	}
 
 	go func() {
-		m, _, err := s.gateway.GetModel(ctx, model.PurposeCheap)
+		titleCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		m, _, err := s.gateway.GetModel(titleCtx, model.PurposeCheap)
 		if err != nil || m == nil {
 			return
 		}
@@ -171,7 +174,7 @@ func (s *ConversationService) AutoTitle(ctx context.Context, convID, userMsg, as
 			firstExchange = string([]rune(firstExchange)[:2000])
 		}
 
-		resp, err := m.Generate(context.Background(), []*schema.Message{
+		resp, err := m.Generate(titleCtx, []*schema.Message{
 			schema.UserMessage("根据以下对话内容，生成一个简洁的标题（最多15个字，不加引号，不加标点）：\n\n" + firstExchange),
 		})
 		if err != nil {

@@ -15,18 +15,13 @@ export interface ChatMessage {
 export function useChat(conversationId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const loadedForRef = useRef<string | null>(null)
 
-  // Load history when conversation changes
-  useEffect(() => {
-    if (!conversationId) {
-      setMessages([])
-      loadedForRef.current = null
-      return
-    }
-    if (loadedForRef.current === conversationId) return
-    loadedForRef.current = conversationId
+  // Load messages from server
+  const loadMessages = useCallback((convId: string) => {
+    setIsLoading(true)
     setMessages([])
     setError(null)
     setIsStreaming(false)
@@ -37,7 +32,7 @@ export function useChat(conversationId: string | null) {
       contentType?: string
       modelId?: string
       createdAt: string
-    }[]>(`/api/conversations/${conversationId}/messages`)
+    }[]>(`/api/conversations/${convId}/messages`)
       .then((msgs) =>
         setMessages(
           msgs.map((m) => ({
@@ -51,7 +46,20 @@ export function useChat(conversationId: string | null) {
         )
       )
       .catch((e) => setError(String(e)))
-  }, [conversationId])
+      .finally(() => setIsLoading(false))
+  }, [])
+
+  // Load history when conversation changes
+  useEffect(() => {
+    if (!conversationId) {
+      setMessages([])
+      loadedForRef.current = null
+      return
+    }
+    if (loadedForRef.current === conversationId) return
+    loadedForRef.current = conversationId
+    loadMessages(conversationId)
+  }, [conversationId, loadMessages])
 
   // SSE event listeners
   useEffect(() => {
@@ -151,7 +159,14 @@ export function useChat(conversationId: string | null) {
     }).catch(() => {})
   }, [conversationId])
 
-  return { messages, isStreaming, error, sendMessage, stopGeneration }
+  const reloadMessages = useCallback(() => {
+    if (conversationId) {
+      loadedForRef.current = null
+      loadMessages(conversationId)
+    }
+  }, [conversationId, loadMessages])
+
+  return { messages, isStreaming, isLoading, error, sendMessage, stopGeneration, reloadMessages }
 }
 
 function appendToken(messages: ChatMessage[], token: string): ChatMessage[] {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, Loader } from 'lucide-react'
 import { MessageItem } from './MessageItem'
 import { EmptyChat } from './EmptyChat'
 import type { ChatMessage } from '@/hooks/useChat'
@@ -7,9 +7,10 @@ import { useT } from '@/lib/i18n'
 
 interface Props {
   messages: ChatMessage[]
+  isLoading?: boolean
 }
 
-export function MessageList({ messages }: Props) {
+export function MessageList({ messages, isLoading }: Props) {
   const t = useT()
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -39,6 +40,14 @@ export function MessageList({ messages }: Props) {
     setUserScrolled(false)
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader size={20} strokeWidth={1.8} style={{ color: '#9b9a97', animation: 'spin 1s linear infinite' }} />
+      </div>
+    )
+  }
 
   if (messages.length === 0) {
     return <EmptyChat />

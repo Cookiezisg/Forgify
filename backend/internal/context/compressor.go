@@ -4,6 +4,7 @@ import (
 	gocontext "context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
@@ -130,7 +131,10 @@ func (c *Compressor) autoCompact(
 		return nil, err
 	}
 
-	resp, err := m.Generate(gocontext.Background(), []*schema.Message{
+	compactCtx, cancel := gocontext.WithTimeout(gocontext.Background(), 2*time.Minute)
+	defer cancel()
+
+	resp, err := m.Generate(compactCtx, []*schema.Message{
 		schema.SystemMessage(`你是一个对话摘要助手。请对以下对话历史做精炼摘要，必须包含：
 1. 用户的核心目标
 2. 已做出的关键决策
@@ -170,7 +174,9 @@ func (c *Compressor) FullCompact(ctx gocontext.Context, convID string) error {
 	var sb strings.Builder
 	for rows.Next() {
 		var role, content string
-		rows.Scan(&role, &content)
+		if err := rows.Scan(&role, &content); err != nil {
+			return fmt.Errorf("scan message: %w", err)
+		}
 		sb.WriteString(fmt.Sprintf("[%s]: %s\n\n", role, content))
 	}
 
@@ -178,12 +184,15 @@ func (c *Compressor) FullCompact(ctx gocontext.Context, convID string) error {
 		return nil // nothing to compact
 	}
 
-	llm, _, err := c.gateway.GetModel(ctx, model.PurposeConversation)
+	fullCtx, cancel := gocontext.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	llm, _, err := c.gateway.GetModel(fullCtx, model.PurposeConversation)
 	if err != nil {
 		return err
 	}
 
-	resp, err := llm.Generate(ctx, []*schema.Message{
+	resp, err := llm.Generate(fullCtx, []*schema.Message{
 		schema.SystemMessage(`请对以下完整对话做全面结构化摘要，包含：
 - 用户目标
 - 所有关键决策（含时间顺序）

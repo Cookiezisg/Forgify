@@ -448,7 +448,7 @@ export function ChatContent() {
       .catch(() => setHasModel(false))
   }, [])
 
-  const { messages, isStreaming, sendMessage, stopGeneration } = useChat(activeId)
+  const { messages, isStreaming, isLoading, sendMessage, stopGeneration, reloadMessages } = useChat(activeId)
   const chatInputRef = useRef<ChatInputHandle>(null)
 
   const handleDropFiles = useCallback((files: File[]) => {
@@ -459,10 +459,9 @@ export function ChatContent() {
     if (!activeId) return
     try {
       await api(`/api/conversations/${activeId}/compact`, { method: 'POST' })
-      // Reload messages to show the summary
-      window.location.reload()
+      reloadMessages()
     } catch {}
-  }, [activeId])
+  }, [activeId, reloadMessages])
 
   const needsSetup = hasKeys === false || hasModel === false
   const goToSettings = () =>
@@ -495,7 +494,7 @@ export function ChatContent() {
       <div className="flex flex-col h-full">
         <CompactBanner conversationId={activeId} />
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          <MessageList messages={messages} />
+          <MessageList messages={messages} isLoading={isLoading} />
         </div>
         <ChatInput
           ref={chatInputRef}

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { InboxProvider } from "./context/InboxContext";
 import { ChatProvider } from "./context/ChatContext";
 import { LocaleProvider } from "./lib/i18n";
@@ -77,6 +78,7 @@ function App() {
   }, [sidebarWidth]);
 
   return (
+    <ErrorBoundary>
     <LocaleProvider>
     <InboxProvider>
     <ChatProvider>
@@ -110,6 +112,7 @@ function App() {
     </ChatProvider>
     </InboxProvider>
     </LocaleProvider>
+    </ErrorBoundary>
   );
 }
 

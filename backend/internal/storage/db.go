@@ -69,7 +69,9 @@ func migrate(conn *sql.DB) error {
 		fmt.Sscanf(e.Name(), "%d_", &version)
 
 		var count int
-		conn.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", version).Scan(&count)
+		if err := conn.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", version).Scan(&count); err != nil {
+			return fmt.Errorf("check migration %d: %w", version, err)
+		}
 		if count > 0 {
 			continue
 		}
@@ -81,7 +83,9 @@ func migrate(conn *sql.DB) error {
 		if _, err := conn.Exec(string(sqlBytes)); err != nil {
 			return fmt.Errorf("migration %d: %w", version, err)
 		}
-		conn.Exec("INSERT INTO schema_migrations (version) VALUES (?)", version)
+		if _, err := conn.Exec("INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
+			return fmt.Errorf("record migration %d: %w", version, err)
+		}
 	}
 	return nil
 }

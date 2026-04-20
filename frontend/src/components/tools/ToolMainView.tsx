@@ -39,6 +39,13 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
 
   useEffect(() => { load() }, [load])
 
+  // Listen for external tool changes (e.g. deleted from another component)
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('tool:changed', handler)
+    return () => window.removeEventListener('tool:changed', handler)
+  }, [load])
+
   if (!tool) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -55,6 +62,7 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
         <p style={{ fontSize: 13, color: '#c7c7c5' }}>{tool.displayName}</p>
         <button onClick={async () => {
           await api(`/api/tools/${toolId}/restore`, { method: 'POST' })
+          window.dispatchEvent(new CustomEvent('tool:changed'))
           load()
         }} style={{
           padding: '6px 16px', fontSize: 13, borderRadius: 6,
@@ -69,6 +77,7 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
   const handleDelete = async () => {
     if (!window.confirm(t('tools.confirmDelete'))) return
     await api(`/api/tools/${toolId}`, { method: 'DELETE' })
+    window.dispatchEvent(new CustomEvent('tool:changed'))
     onDeleted()
   }
 
@@ -192,15 +201,19 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
   const [pending, setPending] = useState<PendingChange>({ hasPending: false })
   const [accepting, setAccepting] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [genStatus, setGenStatus] = useState('AI 正在思考...')
 
   useEffect(() => { setCode(tool.code); setEditing(false) }, [tool.id, tool.code])
 
   // Listen for "AI is generating code" indicator
   useEffect(() => {
-    const off = onEvent<{ conversationId: string; event: string }>(
+    const off = onEvent<{ conversationId: string; event: string; status?: string }>(
       EventNames.ForgeCodeStreaming,
       (e) => {
-        if (e.event === 'generating') setGenerating(true)
+        if (e.event === 'generating') {
+          setGenerating(true)
+          if (e.status) setGenStatus(e.status)
+        }
       }
     )
     return off
@@ -263,7 +276,7 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
           width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: '#3b82f6',
           borderRadius: '50%', animation: 'spin 0.8s linear infinite',
         }} />
-        <p style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>AI 正在编写代码...</p>
+        <p style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>{genStatus}</p>
         <p style={{ fontSize: 12, color: '#9b9a97' }}>完成后将显示变更对比</p>
       </div>
     )

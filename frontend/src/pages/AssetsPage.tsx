@@ -157,7 +157,10 @@ export function AssetsLeftPanel() {
           ))
         )}
 
-        {/* Recycle Bin */}
+      </div>
+
+      {/* Recycle Bin — fixed at bottom of sidebar */}
+      <div style={{ flexShrink: 0, borderTop: '1px solid #f3f4f6', padding: '0 8px' }}>
         <RecycleBin onRestored={load} />
       </div>
     </div>
@@ -176,6 +179,7 @@ function RecycleBin({ onRestored }: { onRestored: () => void }) {
 
   const handleRestore = async (id: string) => {
     await api(`/api/tools/${id}/restore`, { method: 'POST' }).catch(() => {})
+    window.dispatchEvent(new CustomEvent('tool:changed'))
     loadDeleted()
     onRestored()
   }
@@ -183,6 +187,7 @@ function RecycleBin({ onRestored }: { onRestored: () => void }) {
   const handlePermanent = async (id: string) => {
     if (!window.confirm('永久删除此工具？此操作不可恢复。')) return
     await api(`/api/tools/${id}/permanent`, { method: 'DELETE' }).catch(() => {})
+    window.dispatchEvent(new CustomEvent('tool:changed'))
     loadDeleted()
   }
 

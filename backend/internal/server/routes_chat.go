@@ -136,6 +136,11 @@ func bindForgeTools(
 		info, _ := t.Info(ctx)
 		tools = append(tools, info)
 	} else {
+		// Unbound conversations: NO tool calling.
+		// AI outputs code in markdown blocks, frontend ForgeCodeBlock handles save.
+		// This gives the user control: they see the code, click "Save as Tool".
+		return llm
+		/* DISABLED: auto-create via tool calling
 		t := forge.NewCreateToolTool(func(ctx context.Context, code, explanation string) error {
 			parsed := forge.ParseFunction(code)
 			if parsed.FuncName == "" {
@@ -169,6 +174,7 @@ func bindForgeTools(
 		})
 		info, _ := t.Info(ctx)
 		tools = append(tools, info)
+		*/
 	}
 
 	withTools, err := toolLLM.WithTools(tools)
@@ -205,10 +211,15 @@ func doStream(
 	// Phase 1: Generate (non-streaming) for tool calls
 	currentHistory := history
 	for iteration := 0; iteration < 3; iteration++ {
-		bridge.Emit(events.Notification, map[string]any{
-			"title": "AI 正在思考...",
-			"body":  "",
-			"level": "info",
+		// Tell frontend right panel to show generating state
+		status := "AI 正在修改代码..."
+		if iteration == 0 {
+			status = "AI 正在思考..."
+		}
+		bridge.Emit(events.ForgeCodeStreaming, map[string]any{
+			"conversationId": conversationID,
+			"event":          "generating",
+			"status":         status,
 		})
 
 		resp, err := toolLLM.Generate(ctx, currentHistory)
@@ -258,6 +269,44 @@ func doStream(
 				)
 			}
 			convSvc.TouchUpdatedAt(conversationID)
+
+			// For unbound conversations: detect Python code blocks and save as draft tool
+			// (so ForgeCodeBlock in frontend can reference the toolId)
+			conv, _ := convSvc.Get(conversationID)
+			isBound := conv != nil && conv.AssetID != nil && conv.AssetType != nil && *conv.AssetType == "tool"
+			if !isBound {
+				detected := forge.DetectCodeInResponse(content)
+				if detected != nil && detected.FuncName != "" {
+					params := make([]service.ToolParameter, len(detected.Params))
+					for i, p := range detected.Params {
+						params[i] = service.ToolParameter{Name: p.Name, Type: p.Type, Required: p.Required, Default: p.Default}
+					}
+					displayName := detected.FuncName
+					if detected.Docstring != "" {
+						displayName = detected.Docstring
+					}
+					tool := &service.Tool{
+						Name: detected.FuncName, DisplayName: displayName, Description: detected.Docstring,
+						Code: detected.Code, Requirements: detected.Requirements, Parameters: params,
+						Category: "other", Status: "draft",
+					}
+					existing, _ := toolSvc.GetByName(detected.FuncName)
+					if existing != nil {
+						tool.ID = existing.ID
+					}
+					if toolSvc.Save(tool) == nil {
+						// Save toolId in message metadata for frontend ForgeCodeBlock
+						storage.DB().Exec(`
+							UPDATE messages SET metadata = json_object('forgeToolId', ?)
+							WHERE id = (SELECT id FROM messages WHERE conversation_id = ? AND role = 'assistant'
+							ORDER BY created_at DESC LIMIT 1)`, tool.ID, conversationID)
+						bridge.Emit(events.ForgeCodeDetected, map[string]any{
+							"conversationId": conversationID, "toolId": tool.ID, "funcName": detected.FuncName,
+						})
+					}
+				}
+			}
+
 			bridge.Emit(events.ChatDone, map[string]any{
 				"conversationId": conversationID, "modelId": modelID,
 			})

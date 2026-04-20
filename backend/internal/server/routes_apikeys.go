@@ -31,8 +31,24 @@ func (s *Server) saveAPIKey(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if req.Provider == "" || req.Key == "" {
-		jsonError(w, "provider and key are required", http.StatusBadRequest)
+	if req.Provider == "" {
+		jsonError(w, "provider is required", http.StatusBadRequest)
+		return
+	}
+
+	// If updating an existing key and no new key provided, only update baseUrl
+	if req.ID != "" && req.Key == "" {
+		k, err := service.UpdateAPIKeyBaseURL(req.ID, req.BaseURL)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, k)
+		return
+	}
+
+	if req.Key == "" {
+		jsonError(w, "key is required for new API key", http.StatusBadRequest)
 		return
 	}
 	k, err := service.SaveAPIKey(req.ID, req.Provider, req.DisplayName, req.Key, req.BaseURL)
@@ -62,10 +78,30 @@ func (s *Server) testAPIKey(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	ok, msg, err := service.TestAPIKeyConnection(r.Context(), req.Provider, req.Key, req.BaseURL)
+
+	// If no key provided, try to use the saved key for this provider (re-test saved key)
+	testKey := req.Key
+	testURL := req.BaseURL
+	if testKey == "" {
+		savedKey, savedURL, err := service.GetRawKeyForProvider(req.Provider)
+		if err != nil {
+			jsonOK(w, map[string]any{"ok": false, "message": "没有已保存的 Key"})
+			return
+		}
+		testKey = savedKey
+		if testURL == "" {
+			testURL = savedURL
+		}
+	}
+
+	ok, msg, err := service.TestAPIKeyConnection(r.Context(), req.Provider, testKey, testURL)
 	if err != nil {
+		service.UpdateTestStatusByProvider(req.Provider, "error")
 		jsonOK(w, map[string]any{"ok": false, "message": err.Error()})
 		return
+	}
+	if ok {
+		service.UpdateTestStatusByProvider(req.Provider, "ok")
 	}
 	jsonOK(w, map[string]any{"ok": ok, "message": msg})
 }

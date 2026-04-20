@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { onEvent, EventNames } from '@/lib/events'
+import type { PendingFile } from '@/components/chat/AttachmentBar'
 
 export interface ChatMessage {
   id: string
@@ -85,12 +86,20 @@ export function useChat(conversationId: string | null) {
   }, [conversationId])
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, files?: PendingFile[]) => {
       if (!conversationId || isStreaming) return
+
+      // Build attachment summary for display
+      let displayContent = text
+      if (files && files.length > 0) {
+        const names = files.map(f => f.file.name).join(', ')
+        displayContent = text + '\n\ud83d\udcce ' + names
+      }
+
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'user',
-        content: text,
+        content: displayContent,
         contentType: 'text',
         status: 'done',
       }
@@ -104,10 +113,26 @@ export function useChat(conversationId: string | null) {
       setMessages((prev) => [...prev, userMsg, assistantMsg])
       setError(null)
       try {
+        // Convert files to base64
+        let attachments: { name: string; base64: string; size: number }[] = []
+        if (files && files.length > 0) {
+          attachments = await Promise.all(
+            files.map(async (f) => ({
+              name: f.file.name,
+              size: f.file.size,
+              base64: await fileToBase64(f.file),
+            }))
+          )
+        }
+
         await api('/api/chat/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId, message: text }),
+          body: JSON.stringify({
+            conversationId,
+            message: text,
+            attachments: attachments.length > 0 ? attachments : undefined,
+          }),
         })
       } catch (e) {
         setIsStreaming(false)
@@ -152,4 +177,18 @@ function setLastMessageError(messages: ChatMessage[], error: string): ChatMessag
   return messages.map((m, i) =>
     i === messages.length - 1 ? { ...m, content: error, status: 'error' as const } : m
   )
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // Remove data:...;base64, prefix
+      const base64 = result.split(',')[1] || ''
+      resolve(base64)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }

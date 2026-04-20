@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useT } from '@/lib/i18n'
@@ -24,7 +24,7 @@ interface ModelConfig {
 
 const EMPTY: ModelAssignment = { provider: '', modelId: '' }
 
-export function ModelSettings() {
+export function ModelSettings({ refreshKey }: { refreshKey?: number }) {
   const t = useT()
   const [models, setModels] = useState<ModelInfo[]>([])
   const [config, setConfig] = useState<ModelConfig>({
@@ -35,10 +35,15 @@ export function ModelSettings() {
   })
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
+  const loadModels = useCallback(() => {
     api<ModelInfo[]>('/api/models').then(setModels).catch(() => {})
     api<ModelConfig>('/api/model-config').then(setConfig).catch(() => {})
   }, [])
+
+  // Re-fetch when refreshKey changes (triggered after API key save)
+  useEffect(() => {
+    loadModels()
+  }, [loadModels, refreshKey])
 
   const handleSave = async () => {
     try {

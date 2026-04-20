@@ -11,26 +11,35 @@ import (
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
+	"github.com/sunweilin/forgify/internal/attachment"
+	ctxcompress "github.com/sunweilin/forgify/internal/context"
 	"github.com/sunweilin/forgify/internal/events"
 	"github.com/sunweilin/forgify/internal/model"
 	"github.com/sunweilin/forgify/internal/storage"
 )
 
 type ChatService struct {
-	gateway *model.ModelGateway
-	bridge  *events.Bridge
-	convSvc *ConversationService
-	mu      sync.Mutex
-	cancels map[string]context.CancelFunc
+	gateway    *model.ModelGateway
+	bridge     *events.Bridge
+	convSvc    *ConversationService
+	compressor *ctxcompress.Compressor
+	mu         sync.Mutex
+	cancels    map[string]context.CancelFunc
 }
 
 func NewChatService(gateway *model.ModelGateway, bridge *events.Bridge, convSvc *ConversationService) *ChatService {
 	return &ChatService{
-		gateway: gateway,
-		bridge:  bridge,
-		convSvc: convSvc,
-		cancels: make(map[string]context.CancelFunc),
+		gateway:    gateway,
+		bridge:     bridge,
+		convSvc:    convSvc,
+		compressor: ctxcompress.NewCompressor(gateway, bridge),
+		cancels:    make(map[string]context.CancelFunc),
 	}
+}
+
+// FullCompact exposes the compressor's full compact operation to the server layer.
+func (s *ChatService) FullCompact(ctx context.Context, conversationID string) error {
+	return s.compressor.FullCompact(ctx, conversationID)
 }
 
 type chatTokenPayload struct {
@@ -54,11 +63,21 @@ type notificationPayload struct {
 	Level string `json:"level"`
 }
 
-func (s *ChatService) SendMessage(ctx context.Context, conversationID, userMessage string) error {
+func (s *ChatService) SendMessageWithAttachments(ctx context.Context, conversationID, userMessage string, files []*attachment.FileInfo) error {
+	// Build attachment summary for persistence (file names + sizes)
+	var attachSummary string
+	if len(files) > 0 {
+		var names []string
+		for _, f := range files {
+			names = append(names, fmt.Sprintf("%s (%s)", f.Name, formatSize(f.Size)))
+		}
+		attachSummary = "\n📎 " + strings.Join(names, ", ")
+	}
+
 	userMsgID := uuid.NewString()
 	if _, err := storage.DB().Exec(
 		`INSERT INTO messages (id, conversation_id, role, content, content_type) VALUES (?, ?, 'user', ?, 'text')`,
-		userMsgID, conversationID, userMessage,
+		userMsgID, conversationID, userMessage+attachSummary,
 	); err != nil {
 		return fmt.Errorf("save user message: %w", err)
 	}
@@ -67,6 +86,24 @@ func (s *ChatService) SendMessage(ctx context.Context, conversationID, userMessa
 	history, err := s.loadHistory(conversationID)
 	if err != nil {
 		return fmt.Errorf("load history: %w", err)
+	}
+
+	// Inject file content into the message history for the LLM
+	if len(files) > 0 {
+		history, err = attachment.InjectIntoMessages(history, files)
+		if err != nil {
+			return fmt.Errorf("inject attachments: %w", err)
+		}
+	}
+
+	// Apply context compression if needed (model limit defaults to 128k tokens)
+	const defaultModelLimit = 128000
+	history, compressLevel, _ := s.compressor.MaybeCompress(ctx, conversationID, history, defaultModelLimit)
+	if compressLevel == ctxcompress.LevelAuto {
+		s.bridge.Emit(events.ChatCompacted, map[string]any{
+			"conversationId": conversationID,
+			"level":          string(compressLevel),
+		})
 	}
 
 	llm, modelID, getErr := s.gateway.GetModel(ctx, model.PurposeConversation)
@@ -95,6 +132,19 @@ func (s *ChatService) SendMessage(ctx context.Context, conversationID, userMessa
 
 	go s.doStream(streamCtx, cancel, conversationID, llm, history, modelID, userMessage)
 	return nil
+}
+
+func formatSize(bytes int64) string {
+	const kb = 1024
+	const mb = kb * 1024
+	switch {
+	case bytes >= mb:
+		return fmt.Sprintf("%.1fMB", float64(bytes)/float64(mb))
+	case bytes >= kb:
+		return fmt.Sprintf("%.0fKB", float64(bytes)/float64(kb))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
 }
 
 func (s *ChatService) StopGeneration(conversationID string) {

@@ -39,6 +39,14 @@ export const zhCN = {
     minutesAgo: '分钟前',
     hoursAgo: '小时前',
     yesterday: '昨天',
+    dropToAdd: '松开以添加文件',
+    attachFile: '添加附件',
+    fileTooLarge: '文件超过 20MB 限制',
+    fileNotSupported: '不支持此文件类型',
+    compactConversation: '压缩对话',
+    compactConfirm: '压缩后原始历史不可恢复，继续？',
+    compactBanner: '部分早期消息已压缩以节省上下文',
+    viewSummary: '查看摘要',
   },
   settings: {
     title: '设置',
@@ -62,6 +70,8 @@ export const zhCN = {
     delete: '删除',
     confirmDelete: '确定删除此 API Key？',
     saveFailed: '保存失败：',
+    newKeyLabel: '更新 API Key',
+    leaveEmpty: '留空则保留已有 Key',
   },
   model: {
     noKeysHint: '请先配置至少一个 API Key，才能选择模型。',

@@ -1,28 +1,40 @@
-import { useState, useRef, useCallback } from 'react'
-import { ArrowUp, Square } from 'lucide-react'
+import { useState, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
+import { ArrowUp, Square, Paperclip, Minimize2 } from 'lucide-react'
+import { AttachmentBar, type PendingFile } from './AttachmentBar'
 import { useT } from '@/lib/i18n'
+
+export interface ChatInputHandle {
+  addFiles: (files: File[]) => void
+}
 
 interface Props {
   isStreaming: boolean
-  onSend: (text: string) => void
+  onSend: (text: string, files?: PendingFile[]) => void
   onStop: () => void
+  onCompact?: () => void
   disabled?: boolean
 }
 
-export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
+  { isStreaming, onSend, onStop, onCompact, disabled },
+  ref
+) {
   const t = useT()
   const [text, setText] = useState('')
+  const [files, setFiles] = useState<PendingFile[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim()
     if (!trimmed || disabled) return
-    onSend(trimmed)
+    onSend(trimmed, files.length > 0 ? files : undefined)
     setText('')
+    setFiles([])
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-  }, [text, disabled, onSend])
+  }, [text, disabled, onSend, files])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -38,6 +50,19 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 200) + 'px'
   }
+
+  const addFiles = useCallback((newFiles: File[]) => {
+    const pending: PendingFile[] = newFiles
+      .slice(0, 5 - files.length) // enforce max 5
+      .map(f => ({ file: f, id: crypto.randomUUID() }))
+    setFiles(prev => [...prev, ...pending].slice(0, 5))
+  }, [files.length])
+
+  const removeFile = useCallback((id: string) => {
+    setFiles(prev => prev.filter(f => f.id !== id))
+  }, [])
+
+  useImperativeHandle(ref, () => ({ addFiles }), [addFiles])
 
   const canSend = !disabled && !isStreaming && !!text.trim()
   const btnActive = canSend || isStreaming
@@ -67,6 +92,9 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
           }
         }}
       >
+        {/* Attachment preview bar */}
+        <AttachmentBar files={files} onRemove={removeFile} />
+
         <textarea
           ref={textareaRef}
           value={text}
@@ -89,40 +117,124 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
             maxHeight: 200,
             overflowY: 'auto',
             boxSizing: 'border-box',
-            padding: '10px 46px 10px 14px',
+            padding: '10px 76px 10px 14px',
           }}
         />
 
-        <button
-          onClick={isStreaming ? onStop : handleSend}
-          disabled={!btnActive}
+        {/* Toolbar buttons */}
+        <div
           style={{
             position: 'absolute',
             right: 8,
             bottom: 8,
-            width: 28,
-            height: 28,
-            borderRadius: 7,
-            border: 'none',
-            cursor: btnActive ? 'pointer' : 'default',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            background: btnActive
-              ? isStreaming ? '#f3f4f6' : '#1a1a1a'
-              : '#e5e7eb',
-            color: btnActive
-              ? isStreaming ? '#374151' : 'white'
-              : '#9b9a97',
-            transition: 'background 120ms',
+            gap: 4,
           }}
         >
-          {isStreaming
-            ? <Square size={11} strokeWidth={2.5} />
-            : <ArrowUp size={14} strokeWidth={2.5} />
-          }
-        </button>
+          {/* Compact conversation button */}
+          {onCompact && (
+            <button
+              onClick={() => {
+                if (window.confirm(t('chat.compactConfirm'))) onCompact()
+              }}
+              disabled={disabled || isStreaming}
+              title={t('chat.compactConversation')}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 7,
+                border: 'none',
+                cursor: disabled || isStreaming ? 'default' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'transparent',
+                color: '#9b9a97',
+                transition: 'color 120ms',
+              }}
+              onMouseEnter={(e) => {
+                if (!disabled && !isStreaming) e.currentTarget.style.color = '#374151'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '#9b9a97'
+              }}
+            >
+              <Minimize2 size={13} strokeWidth={2} />
+            </button>
+          )}
+
+          {/* File attachment button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || isStreaming}
+            title={t('chat.attachFile')}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 7,
+              border: 'none',
+              cursor: disabled || isStreaming ? 'default' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              color: '#9b9a97',
+              transition: 'color 120ms',
+            }}
+            onMouseEnter={(e) => {
+              if (!disabled && !isStreaming) e.currentTarget.style.color = '#374151'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#9b9a97'
+            }}
+          >
+            <Paperclip size={14} strokeWidth={2} />
+          </button>
+
+          {/* Send / Stop button */}
+          <button
+            onClick={isStreaming ? onStop : handleSend}
+            disabled={!btnActive}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 7,
+              border: 'none',
+              cursor: btnActive ? 'pointer' : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              background: btnActive
+                ? isStreaming ? '#f3f4f6' : '#1a1a1a'
+                : '#e5e7eb',
+              color: btnActive
+                ? isStreaming ? '#374151' : 'white'
+                : '#9b9a97',
+              transition: 'background 120ms',
+            }}
+          >
+            {isStreaming
+              ? <Square size={11} strokeWidth={2.5} />
+              : <ArrowUp size={14} strokeWidth={2.5} />
+            }
+          </button>
+        </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            if (e.target.files) {
+              addFiles(Array.from(e.target.files))
+              e.target.value = '' // allow re-selecting same file
+            }
+          }}
+        />
       </div>
 
       <p style={{ fontSize: 11, color: '#c7c7c5', textAlign: 'center', marginTop: 6 }}>
@@ -130,4 +242,4 @@ export function ChatInput({ isStreaming, onSend, onStop, disabled }: Props) {
       </p>
     </div>
   )
-}
+})

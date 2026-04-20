@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react'
 import { ApiKeySettings } from '@/components/settings/ApiKeySettings'
 import { ModelSettings } from '@/components/settings/ModelSettings'
 import { useI18n, useT } from '@/lib/i18n'
@@ -55,6 +56,10 @@ export function SettingsLeftPanel() {
 
 export function SettingsContent() {
   const t = useT()
+  // Bump this counter after any API key change to trigger ModelSettings re-fetch
+  const [keyVersion, setKeyVersion] = useState(0)
+  const onKeysChanged = useCallback(() => setKeyVersion(v => v + 1), [])
+
   return (
     <div style={{ height: '100%', overflowY: 'auto' }}>
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '28px 32px' }}>
@@ -67,13 +72,13 @@ export function SettingsContent() {
         <div style={{ height: 1, background: '#f3f4f6', marginBottom: 32 }} />
 
         <section style={{ marginBottom: 36 }}>
-          <ApiKeySettings />
+          <ApiKeySettings onKeysChanged={onKeysChanged} />
         </section>
 
         <div style={{ height: 1, background: '#f3f4f6', marginBottom: 32 }} />
 
         <section>
-          <ModelSettings />
+          <ModelSettings refreshKey={keyVersion} />
         </section>
       </div>
     </div>

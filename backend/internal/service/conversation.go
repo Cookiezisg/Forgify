@@ -206,8 +206,7 @@ func (s *ConversationService) scan(query string, args ...any) ([]*Conversation, 
 	var convs []*Conversation
 	for rows.Next() {
 		c := &Conversation{}
-		var assetID, assetType sql.NullString
-		var created, updated string
+		var assetID, assetType, created, updated sql.NullString
 		if err := rows.Scan(&c.ID, &c.Title, &assetID, &assetType,
 			&c.Status, &created, &updated); err != nil {
 			return nil, err
@@ -218,12 +217,31 @@ func (s *ConversationService) scan(query string, args ...any) ([]*Conversation, 
 		if assetType.Valid {
 			c.AssetType = &assetType.String
 		}
-		c.CreatedAt, _ = time.Parse(time.DateTime, created)
-		c.UpdatedAt, _ = time.Parse(time.DateTime, updated)
+		c.CreatedAt = parseSQLiteTime(created)
+		c.UpdatedAt = parseSQLiteTime(updated)
 		convs = append(convs, c)
 	}
 	if convs == nil {
 		convs = []*Conversation{}
 	}
 	return convs, rows.Err()
+}
+
+// parseSQLiteTime handles multiple datetime formats from SQLite.
+func parseSQLiteTime(s sql.NullString) time.Time {
+	if !s.Valid || s.String == "" {
+		return time.Now()
+	}
+	for _, layout := range []string{
+		time.DateTime,                // "2006-01-02 15:04:05"
+		"2006-01-02T15:04:05Z",      // ISO 8601
+		"2006-01-02T15:04:05Z07:00", // RFC 3339
+		"2006-01-02 15:04:05-07:00", // with timezone
+		"2006-01-02",                 // date only
+	} {
+		if t, err := time.Parse(layout, s.String); err == nil {
+			return t
+		}
+	}
+	return time.Now()
 }

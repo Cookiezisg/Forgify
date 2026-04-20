@@ -38,6 +38,14 @@ export const en: Translation = {
     minutesAgo: 'min ago',
     hoursAgo: 'h ago',
     yesterday: 'Yesterday',
+    dropToAdd: 'Drop to add files',
+    attachFile: 'Attach file',
+    fileTooLarge: 'File exceeds 20MB limit',
+    fileNotSupported: 'File type not supported',
+    compactConversation: 'Compact conversation',
+    compactConfirm: 'Compacted history cannot be recovered. Continue?',
+    compactBanner: 'Some earlier messages were compacted to save context',
+    viewSummary: 'View summary',
   },
   settings: {
     title: 'Settings',
@@ -61,6 +69,8 @@ export const en: Translation = {
     delete: 'Delete',
     confirmDelete: 'Delete this API Key?',
     saveFailed: 'Save failed: ',
+    newKeyLabel: 'Update API Key',
+    leaveEmpty: 'Leave empty to keep existing key',
   },
   model: {
     noKeysHint: 'Configure at least one API Key to select a model.',

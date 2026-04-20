@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Plus, MessageCircle, Search, Archive, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useChat } from '@/hooks/useChat'
 import { MessageList } from '@/components/chat/MessageList'
-import { ChatInput } from '@/components/chat/ChatInput'
+import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput'
+import { DropZone } from '@/components/chat/DropZone'
+import { CompactBanner } from '@/components/chat/CompactBanner'
 import { ContextMenu } from '@/components/common/ContextMenu'
 import { useChatContext, type Conversation } from '@/context/ChatContext'
 import { useT } from '@/lib/i18n'
@@ -14,7 +16,11 @@ function relativeTime(
   dateStr: string,
   t: (k: any) => string
 ): string {
-  const date = new Date(dateStr + 'Z') // SQLite stores UTC
+  if (!dateStr) return ''
+  // Go's time.Time marshals to ISO 8601 (e.g. "2026-04-20T03:17:27Z")
+  const date = new Date(dateStr)
+  if (isNaN(date.getTime())) return ''
+
   const now = Date.now()
   const diff = now - date.getTime()
   const minutes = Math.floor(diff / 60000)
@@ -430,14 +436,37 @@ export function ChatContent() {
   const t = useT()
   const { activeId } = useChatContext()
   const [hasKeys, setHasKeys] = useState<boolean | null>(null)
+  const [hasModel, setHasModel] = useState<boolean | null>(null)
 
+  // Check keys & model config on every mount (happens on each tab switch)
   useEffect(() => {
     api<{ id: string }[]>('/api/api-keys')
       .then((keys) => setHasKeys(keys.length > 0))
       .catch(() => setHasKeys(false))
+    api<{ conversation: { provider: string; modelId: string } }>('/api/model-config')
+      .then((cfg) => setHasModel(!!(cfg.conversation.provider && cfg.conversation.modelId)))
+      .catch(() => setHasModel(false))
   }, [])
 
   const { messages, isStreaming, sendMessage, stopGeneration } = useChat(activeId)
+  const chatInputRef = useRef<ChatInputHandle>(null)
+
+  const handleDropFiles = useCallback((files: File[]) => {
+    chatInputRef.current?.addFiles(files)
+  }, [])
+
+  const handleCompact = useCallback(async () => {
+    if (!activeId) return
+    try {
+      await api(`/api/conversations/${activeId}/compact`, { method: 'POST' })
+      // Reload messages to show the summary
+      window.location.reload()
+    } catch {}
+  }, [activeId])
+
+  const needsSetup = hasKeys === false || hasModel === false
+  const goToSettings = () =>
+    window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'settings' }))
 
   if (!activeId) {
     return (
@@ -445,21 +474,12 @@ export function ChatContent() {
         <p style={{ fontSize: 16, fontWeight: 500, color: '#374151' }}>
           {t('chat.selectOrNew')}
         </p>
-        {hasKeys === false && (
+        {needsSetup && (
           <p style={{ fontSize: 13, color: '#9b9a97' }}>
             {t('chat.configureKeyHint')}{' '}
             <button
-              onClick={() =>
-                window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'settings' }))
-              }
-              style={{
-                color: '#2383e2',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: 13,
-                padding: 0,
-              }}
+              onClick={goToSettings}
+              style={{ color: '#2383e2', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0 }}
             >
               {t('chat.settingsLink')}
             </button>{' '}
@@ -471,16 +491,21 @@ export function ChatContent() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-        <MessageList messages={messages} />
+    <DropZone onFiles={handleDropFiles}>
+      <div className="flex flex-col h-full">
+        <CompactBanner conversationId={activeId} />
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          <MessageList messages={messages} />
+        </div>
+        <ChatInput
+          ref={chatInputRef}
+          isStreaming={isStreaming}
+          onSend={sendMessage}
+          onStop={stopGeneration}
+          onCompact={handleCompact}
+          disabled={needsSetup}
+        />
       </div>
-      <ChatInput
-        isStreaming={isStreaming}
-        onSend={sendMessage}
-        onStop={stopGeneration}
-        disabled={hasKeys === false}
-      />
-    </div>
+    </DropZone>
   )
 }

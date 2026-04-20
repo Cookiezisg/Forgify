@@ -89,6 +89,28 @@ func SaveAPIKey(id, provider, displayName, rawKey, baseURL string) (*APIKey, err
 	}, nil
 }
 
+func UpdateAPIKeyBaseURL(id, baseURL string) (*APIKey, error) {
+	_, err := storage.DB().Exec(`
+		UPDATE api_keys SET base_url=?, updated_at=datetime('now') WHERE id=?`,
+		baseURL, id)
+	if err != nil {
+		return nil, err
+	}
+	var k APIKey
+	var keyEnc, displayName string
+	err = storage.DB().QueryRow(`
+		SELECT id, provider, COALESCE(display_name,''), key_enc, COALESCE(base_url,''), COALESCE(test_status,'')
+		FROM api_keys WHERE id=?`, id).Scan(
+		&k.ID, &k.Provider, &displayName, &keyEnc, &k.BaseURL, &k.TestStatus)
+	if err != nil {
+		return nil, err
+	}
+	k.DisplayName = displayName
+	raw, _ := crypto.Decrypt(keyEnc, encKey)
+	k.KeyMasked = maskKey(string(raw))
+	return &k, nil
+}
+
 func DeleteAPIKey(id string) error {
 	_, err := storage.DB().Exec(`DELETE FROM api_keys WHERE id=?`, id)
 	return err
@@ -163,6 +185,12 @@ func UpdateTestStatus(id, status string) {
 		WHERE id=?`, status, id)
 }
 
+func UpdateTestStatusByProvider(provider, status string) {
+	storage.DB().Exec(`
+		UPDATE api_keys SET test_status=?, last_tested=datetime('now'), updated_at=datetime('now')
+		WHERE provider=?`, status, provider)
+}
+
 func maskKey(key string) string {
 	if len(key) <= 8 {
 		return "****"
@@ -180,9 +208,10 @@ func testAnthropic(ctx context.Context, apiKey string) (bool, string, error) {
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("content-type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("连接失败：%v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 200 || resp.StatusCode == 201 {
@@ -194,20 +223,24 @@ func testAnthropic(ctx context.Context, apiKey string) (bool, string, error) {
 
 func testOpenAICompat(ctx context.Context, apiKey, baseURL string) (bool, string, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
-	body := `{"model":"gpt-4o-mini","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
-	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions",
-		bytes.NewBufferString(body))
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	// Use GET /models — it validates the API key without needing a specific model name.
+	// This avoids "model not found" errors when testing non-OpenAI providers.
+	req, _ := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("连接失败：%v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 200 || resp.StatusCode == 201 {
+
+	if resp.StatusCode == 200 {
 		return true, "连接成功", nil
 	}
+
+	// 401/403 means auth failed
 	data, _ := io.ReadAll(resp.Body)
 	return false, "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(data), 200))
 }

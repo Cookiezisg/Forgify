@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -124,6 +125,17 @@ func (s *Server) unbindConversation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ---------- Compact ----------
+
+func (s *Server) fullCompact(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.chatSvc.FullCompact(r.Context(), id); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ---------- Messages ----------
 
 type messageResponse struct {
@@ -151,7 +163,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	var msgs []messageResponse
 	for rows.Next() {
 		var m messageResponse
-		var created string
+		var created sql.NullString
 		var contentType, metadata, modelID *string
 		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content,
 			&contentType, &metadata, &modelID, &created); err != nil {
@@ -165,11 +177,29 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		m.Metadata = metadata
 		m.ModelID = modelID
-		m.CreatedAt, _ = time.Parse(time.DateTime, created)
+		m.CreatedAt = parseSQLiteTime(created)
 		msgs = append(msgs, m)
 	}
 	if msgs == nil {
 		msgs = []messageResponse{}
 	}
 	jsonOK(w, msgs)
+}
+
+func parseSQLiteTime(s sql.NullString) time.Time {
+	if !s.Valid || s.String == "" {
+		return time.Now()
+	}
+	for _, layout := range []string{
+		time.DateTime,
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02",
+	} {
+		if t, err := time.Parse(layout, s.String); err == nil {
+			return t
+		}
+	}
+	return time.Now()
 }

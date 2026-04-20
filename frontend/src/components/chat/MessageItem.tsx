@@ -1,6 +1,9 @@
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { ForgeCodeBlock } from '@/components/forge/ForgeCodeBlock'
+import { ToolCreatedCard } from './cards/ToolCreatedCard'
+import { ToolTestResultCard } from './cards/ToolTestResultCard'
 import type { ChatMessage } from '@/hooks/useChat'
 import { useT } from '@/lib/i18n'
 
@@ -66,6 +69,35 @@ export function MessageItem({ message }: Props) {
         </div>
       </div>
     )
+  }
+
+  // Card-type messages
+  if (message.contentType === 'tool_created') {
+    try {
+      const meta = JSON.parse(message.content)
+      return (
+        <div className="flex justify-start px-6 py-1">
+          <ToolCreatedCard toolName={meta.toolName || ''} status={meta.status || 'draft'} />
+        </div>
+      )
+    } catch { /* fall through to normal render */ }
+  }
+
+  if (message.contentType === 'tool_test_result') {
+    try {
+      const meta = JSON.parse(message.content)
+      return (
+        <div className="flex justify-start px-6 py-1">
+          <ToolTestResultCard
+            toolName={meta.toolName || ''}
+            passed={meta.passed ?? false}
+            durationMs={meta.durationMs ?? 0}
+            output={meta.output ? JSON.stringify(meta.output) : undefined}
+            error={meta.error}
+          />
+        </div>
+      )
+    } catch { /* fall through to normal render */ }
   }
 
   // Assistant message
@@ -139,20 +171,29 @@ export function MessageItem({ message }: Props) {
                 code({ className, children, ...rest }) {
                   const match = /language-(\w+)/.exec(className || '')
                   const isBlock = 'node' in rest
+                  const isPython = match?.[1] === 'python'
                   return match && isBlock ? (
-                    <SyntaxHighlighter
-                      style={oneLight}
-                      language={match[1]}
-                      PreTag="div"
-                      customStyle={{
-                        borderRadius: 6,
-                        fontSize: 13,
-                        margin: '8px 0',
-                        background: '#f7f7f5',
-                      }}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
+                    <div>
+                      <SyntaxHighlighter
+                        style={oneLight}
+                        language={match[1]}
+                        PreTag="div"
+                        customStyle={{
+                          borderRadius: 6,
+                          fontSize: 13,
+                          margin: '8px 0',
+                          background: '#f7f7f5',
+                        }}
+                        codeTagProps={{
+                          style: { background: 'transparent' },
+                        }}
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                      {isPython && message.forgeToolId && message.status === 'done' && (
+                        <ForgeCodeBlock toolId={message.forgeToolId} />
+                      )}
+                    </div>
                   ) : (
                     <code
                       className={className}

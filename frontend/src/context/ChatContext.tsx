@@ -70,6 +70,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  // Listen for conversation-asset binding
+  useEffect(() => {
+    return onEvent<{ conversationId: string; assetId: string; assetType: string }>(
+      EventNames.ChatBound,
+      ({ conversationId, assetId, assetType }) => {
+        setConversations(prev =>
+          prev.map(c => c.id === conversationId
+            ? { ...c, assetId: assetId || null, assetType: assetType || null }
+            : c
+          )
+        )
+      }
+    )
+  }, [])
+
   const createConversation = useCallback(async () => {
     try {
       const conv = await api<Conversation>('/api/conversations', {

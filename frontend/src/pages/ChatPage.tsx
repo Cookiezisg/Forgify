@@ -6,6 +6,7 @@ import { MessageList } from '@/components/chat/MessageList'
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput'
 import { DropZone } from '@/components/chat/DropZone'
 import { CompactBanner } from '@/components/chat/CompactBanner'
+import { BindingIndicator } from '@/components/chat/BindingIndicator'
 import { ContextMenu } from '@/components/common/ContextMenu'
 import { useChatContext, type Conversation } from '@/context/ChatContext'
 import { useT } from '@/lib/i18n'
@@ -492,6 +493,7 @@ export function ChatContent() {
   return (
     <DropZone onFiles={handleDropFiles}>
       <div className="flex flex-col h-full">
+        <BindingIndicator conversationId={activeId} />
         <CompactBanner conversationId={activeId} />
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
           <MessageList messages={messages} isLoading={isLoading} />

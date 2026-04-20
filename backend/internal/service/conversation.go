@@ -78,6 +78,15 @@ func (s *ConversationService) ListArchived() ([]*Conversation, error) {
 	`)
 }
 
+func (s *ConversationService) ListByAsset(assetID string) ([]*Conversation, error) {
+	return s.scan(`
+		SELECT id, title, asset_id, asset_type, status, created_at, updated_at
+		FROM conversations
+		WHERE asset_id = ? AND status = 'active'
+		ORDER BY updated_at DESC
+	`, assetID)
+}
+
 func (s *ConversationService) Rename(id, title string) error {
 	title = strings.TrimSpace(title)
 	if title == "" {

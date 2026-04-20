@@ -15,6 +15,7 @@ type Server struct {
 	Events  *events.Bridge
 	chatSvc *service.ChatService
 	convSvc *service.ConversationService
+	toolSvc *service.ToolService
 }
 
 func New() *Server {
@@ -26,13 +27,15 @@ func New() *Server {
 	}
 	gateway := model.New(keyProvider, bridge)
 	convSvc := service.NewConversationService(gateway, bridge)
+	toolSvc := service.NewToolService()
 
 	s := &Server{
 		mux:     http.NewServeMux(),
 		broker:  broker,
 		Events:  bridge,
-		chatSvc: service.NewChatService(gateway, bridge, convSvc),
+		chatSvc: service.NewChatService(gateway, bridge, convSvc, toolSvc),
 		convSvc: convSvc,
+		toolSvc: toolSvc,
 	}
 	s.routes()
 	return s
@@ -63,6 +66,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/conversations", s.listConversations)
 	s.mux.HandleFunc("GET /api/conversations/archived", s.listArchivedConversations)
 	s.mux.HandleFunc("GET /api/conversations/search", s.searchConversations)
+	s.mux.HandleFunc("GET /api/asset-conversations/{assetId}", s.listConversationsByAsset)
 	s.mux.HandleFunc("POST /api/conversations", s.createConversation)
 	s.mux.HandleFunc("PATCH /api/conversations/{id}/rename", s.renameConversation)
 	s.mux.HandleFunc("PATCH /api/conversations/{id}/archive", s.archiveConversation)
@@ -79,6 +83,18 @@ func (s *Server) routes() {
 
 	// Attachments
 	s.mux.HandleFunc("POST /api/attachments/upload", s.handleUploadAttachment)
+
+	// Tools
+	s.mux.HandleFunc("GET /api/tools", s.listTools)
+	s.mux.HandleFunc("POST /api/tools", s.createTool)
+	s.mux.HandleFunc("GET /api/tools/{id}", s.getTool)
+	s.mux.HandleFunc("PUT /api/tools/{id}", s.updateTool)
+	s.mux.HandleFunc("DELETE /api/tools/{id}", s.deleteTool)
+	s.mux.HandleFunc("POST /api/tools/{id}/run", s.runTool)
+	s.mux.HandleFunc("GET /api/tools/{id}/test-history", s.listToolTestHistory)
+	s.mux.HandleFunc("GET /api/tools/{id}/export", s.exportTool)
+	s.mux.HandleFunc("POST /api/tools/import/parse", s.importToolParse)
+	s.mux.HandleFunc("POST /api/tools/import/confirm", s.importToolConfirm)
 
 	// Models
 	s.mux.HandleFunc("GET /api/models", s.listModels)

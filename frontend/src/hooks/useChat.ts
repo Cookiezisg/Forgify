@@ -9,6 +9,7 @@ export interface ChatMessage {
   content: string
   contentType: string
   modelId?: string
+  forgeToolId?: string
   status: 'done' | 'streaming' | 'error'
 }
 
@@ -30,19 +31,31 @@ export function useChat(conversationId: string | null) {
       role: string
       content: string
       contentType?: string
+      metadata?: string
       modelId?: string
       createdAt: string
     }[]>(`/api/conversations/${convId}/messages`)
       .then((msgs) =>
         setMessages(
-          msgs.map((m) => ({
-            id: m.id,
-            role: m.role as ChatMessage['role'],
-            content: m.content,
-            contentType: m.contentType || 'text',
-            modelId: m.modelId || undefined,
-            status: 'done' as const,
-          }))
+          msgs.map((m) => {
+            // Restore forgeToolId from metadata if present
+            let forgeToolId: string | undefined
+            if (m.metadata) {
+              try {
+                const meta = JSON.parse(m.metadata)
+                forgeToolId = meta.forgeToolId || undefined
+              } catch {}
+            }
+            return {
+              id: m.id,
+              role: m.role as ChatMessage['role'],
+              content: m.content,
+              contentType: m.contentType || 'text',
+              modelId: m.modelId || undefined,
+              forgeToolId,
+              status: 'done' as const,
+            }
+          })
         )
       )
       .catch((e) => setError(String(e)))
@@ -87,6 +100,14 @@ export function useChat(conversationId: string | null) {
           if (e.conversationId !== conversationId) return
           setIsStreaming(false)
           setMessages((prev) => setLastMessageError(prev, e.error))
+        }
+      ),
+      // Forge: when AI generates tool code, attach toolId to the last assistant message
+      onEvent<{ conversationId: string; toolId: string; funcName: string }>(
+        EventNames.ForgeCodeDetected,
+        (e) => {
+          if (e.conversationId !== conversationId) return
+          setMessages((prev) => attachForgeToolId(prev, e.toolId))
         }
       ),
     ]
@@ -192,6 +213,18 @@ function setLastMessageError(messages: ChatMessage[], error: string): ChatMessag
   return messages.map((m, i) =>
     i === messages.length - 1 ? { ...m, content: error, status: 'error' as const } : m
   )
+}
+
+function attachForgeToolId(messages: ChatMessage[], toolId: string): ChatMessage[] {
+  // Find the last assistant message with 'done' status and attach the toolId
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant' && messages[i].status === 'done') {
+      return messages.map((m, idx) =>
+        idx === i ? { ...m, forgeToolId: toolId } : m
+      )
+    }
+  }
+  return messages
 }
 
 function fileToBase64(file: File): Promise<string> {

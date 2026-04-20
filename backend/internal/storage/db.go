@@ -20,14 +20,15 @@ var (
 	once sync.Once
 )
 
-func Init(dataDir string) error {
+func Init(dir string) error {
 	var initErr error
 	once.Do(func() {
-		if err := ensureDir(dataDir); err != nil {
+		dataDir = dir
+		if err := ensureDir(dir); err != nil {
 			initErr = err
 			return
 		}
-		conn, err := sql.Open("sqlite", dataDir+"/forgify.db?_journal_mode=WAL&_busy_timeout=5000")
+		conn, err := sql.Open("sqlite", dir+"/forgify.db?_journal_mode=WAL&_busy_timeout=5000")
 		if err != nil {
 			initErr = err
 			return

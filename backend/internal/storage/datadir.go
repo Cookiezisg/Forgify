@@ -19,6 +19,17 @@ func DefaultDataDir() string {
 	}
 }
 
+// DataDir returns the active data directory (set during Init).
+// Falls back to DefaultDataDir if Init hasn't been called.
+var dataDir string
+
+func DataDir() string {
+	if dataDir != "" {
+		return dataDir
+	}
+	return DefaultDataDir()
+}
+
 func ensureDir(path string) error {
 	return os.MkdirAll(path, 0o755)
 }

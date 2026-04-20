@@ -24,7 +24,8 @@ const (
 	MailboxUpdated = "mailbox.updated"
 
 	WorkflowDeployed = "workflow.deployed"
-	OpenConversation = "open.conversation"
+	OpenConversation   = "open.conversation"
+	ForgeCodeDetected  = "forge.code_detected"
 )
 
 type Bridge struct {

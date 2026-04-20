@@ -14,6 +14,7 @@ import (
 	"github.com/sunweilin/forgify/internal/attachment"
 	ctxcompress "github.com/sunweilin/forgify/internal/context"
 	"github.com/sunweilin/forgify/internal/events"
+	"github.com/sunweilin/forgify/internal/forge"
 	"github.com/sunweilin/forgify/internal/model"
 	"github.com/sunweilin/forgify/internal/storage"
 )
@@ -22,16 +23,18 @@ type ChatService struct {
 	gateway    *model.ModelGateway
 	bridge     *events.Bridge
 	convSvc    *ConversationService
+	toolSvc    *ToolService
 	compressor *ctxcompress.Compressor
 	mu         sync.Mutex
 	cancels    map[string]context.CancelFunc
 }
 
-func NewChatService(gateway *model.ModelGateway, bridge *events.Bridge, convSvc *ConversationService) *ChatService {
+func NewChatService(gateway *model.ModelGateway, bridge *events.Bridge, convSvc *ConversationService, toolSvc *ToolService) *ChatService {
 	return &ChatService{
 		gateway:    gateway,
 		bridge:     bridge,
 		convSvc:    convSvc,
+		toolSvc:    toolSvc,
 		compressor: ctxcompress.NewCompressor(gateway, bridge),
 		cancels:    make(map[string]context.CancelFunc),
 	}
@@ -200,6 +203,9 @@ func (s *ChatService) doStream(
 
 			// Trigger auto-title for first exchange
 			s.convSvc.AutoTitle(ctx, conversationID, userMessage, content)
+
+			// Detect forge code blocks in AI response
+			s.detectForgeCode(conversationID, content)
 			return
 		}
 		if err != nil {
@@ -228,7 +234,11 @@ func (s *ChatService) loadHistory(conversationID string) ([]*schema.Message, err
 	}
 	defer rows.Close()
 
-	var msgs []*schema.Message
+	// Always inject the forge system prompt so the AI knows tool code format
+	msgs := []*schema.Message{
+		schema.SystemMessage(forge.ForgeSystemPrompt),
+	}
+
 	for rows.Next() {
 		var role, content string
 		if err := rows.Scan(&role, &content); err != nil {
@@ -244,6 +254,70 @@ func (s *ChatService) loadHistory(conversationID string) ([]*schema.Message, err
 		}
 	}
 	return msgs, rows.Err()
+}
+
+// detectForgeCode checks if an AI response contains a Python code block,
+// saves it as a draft tool, and emits a forge event.
+func (s *ChatService) detectForgeCode(conversationID, content string) {
+	detected := forge.DetectCodeInResponse(content)
+	if detected == nil {
+		return
+	}
+
+	// Convert forge params to service params
+	params := make([]ToolParameter, len(detected.Params))
+	for i, p := range detected.Params {
+		params[i] = ToolParameter{
+			Name:     p.Name,
+			Type:     p.Type,
+			Required: p.Required,
+			Default:  p.Default,
+		}
+	}
+
+	displayName := detected.FuncName
+	if detected.Docstring != "" {
+		displayName = detected.Docstring
+	}
+
+	tool := &Tool{
+		Name:         detected.FuncName,
+		DisplayName:  displayName,
+		Description:  detected.Docstring,
+		Code:         detected.Code,
+		Requirements: detected.Requirements,
+		Parameters:   params,
+		Category:     "other",
+		Status:       "draft",
+	}
+
+	// Update if tool with same name exists
+	existing, _ := s.toolSvc.GetByName(detected.FuncName)
+	if existing != nil {
+		tool.ID = existing.ID
+	}
+
+	if err := s.toolSvc.Save(tool); err != nil {
+		return
+	}
+
+	// Auto-bind conversation to the created tool (PRD 2.1)
+	s.convSvc.Bind(conversationID, tool.ID, "tool")
+
+	// Persist forgeToolId in the last assistant message's metadata so it survives reload
+	storage.DB().Exec(`
+		UPDATE messages SET metadata = json_object('forgeToolId', ?)
+		WHERE id = (
+			SELECT id FROM messages
+			WHERE conversation_id = ? AND role = 'assistant'
+			ORDER BY created_at DESC LIMIT 1
+		)`, tool.ID, conversationID)
+
+	s.bridge.Emit(events.ForgeCodeDetected, map[string]any{
+		"conversationId": conversationID,
+		"toolId":         tool.ID,
+		"funcName":       detected.FuncName,
+	})
 }
 
 func classifyError(err error) string {

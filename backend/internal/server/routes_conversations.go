@@ -31,7 +31,9 @@ func (s *Server) listArchivedConversations(w http.ResponseWriter, _ *http.Reques
 
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title string `json:"title"`
+		Title   string `json:"title"`
+		AssetID string `json:"assetId"`
+		AssetType string `json:"assetType"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	conv, err := s.convSvc.Create(req.Title)
@@ -39,7 +41,22 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Pre-bind to asset if specified (e.g. "new conversation" from tool page)
+	if req.AssetID != "" && req.AssetType != "" {
+		s.convSvc.Bind(conv.ID, req.AssetID, req.AssetType)
+		conv, _ = s.convSvc.Get(conv.ID) // reload with binding
+	}
 	jsonOK(w, conv)
+}
+
+func (s *Server) listConversationsByAsset(w http.ResponseWriter, r *http.Request) {
+	assetID := r.PathValue("assetId")
+	convs, err := s.convSvc.ListByAsset(assetID)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, convs)
 }
 
 func (s *Server) renameConversation(w http.ResponseWriter, r *http.Request) {

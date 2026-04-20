@@ -1,7 +1,7 @@
 # Forgify 开发进度
 
 **更新于**：2026-04-20  
-**当前状态**：Tier 1-3 全部完成
+**当前状态**：Tier 1-4 全部完成
 
 ---
 
@@ -54,12 +54,12 @@
 
 | 切片 | 描述 | 状态 | 备注 |
 |---|---|---|---|
-| **D3** Python Sandbox | uv venv，subprocess 执行 | ⬜ | 先做执行引擎 |
-| **D6** Built-in Tools | 内置工具注册，go:embed | ⬜ | 需要 D3 |
-| **D1** Tool Library | 工具列表，搜索 | ⬜ | |
-| **D4** Tool Detail | Monaco 代码查看/编辑 | ⬜ | |
-| **D2** Tool Forge | AI 对话创建工具 | ⬜ | 需要 B2 + D3 + D4 |
-| **D5** Tool Sharing | 导入导出 | ⬜ | 最后做 |
+| **D3** Python Sandbox | uv venv，subprocess 执行 | ✅ | 沙箱执行器+安装器+runner模板 |
+| **D6** Built-in Tools | 内置工具注册，go:embed | ✅ | 4个代表工具(file/web/data/system)，启动自动注册 |
+| **D1** Tool Library | 工具列表，搜索 | ✅ | 工具库UI+搜索+分类筛选+卡片 |
+| **D4** Tool Detail | Monaco 代码查看/编辑 | ✅ | 代码/参数/测试三Tab，Monaco编辑器 |
+| **D2** Tool Forge | AI 对话创建工具 | ✅ | 代码块检测+自动解析保存草稿工具 |
+| **D5** Tool Sharing | 导入导出 | ✅ | .forgify-tool JSON导出导入+冲突处理 |
 
 ---
 
@@ -161,3 +161,4 @@ H2 → H1, I1, I2, I3
 | 2026-04-20 | B1+K1+B2+B3 完成：API Key 加密存储，模型设置，Eino 流式对话，模型降级策略 |
 | 2026-04-20 | C1+C2 完成：ConversationService，搜索/重命名/归档/自动命名，ChatContext，滚动控制，模型名称，空状态 |
 | 2026-04-20 | C3+C4 完成：文件拖拽/点击上传，Excel/PDF/Word/图片解析注入，三层上下文压缩引擎，CompactBanner |
+| 2026-04-20 | Tier 4 全部完成：Python沙箱(uv+venv+subprocess)，工具CRUD+测试历史，forge解析器(AST提取函数/参数/依赖)，4个内置工具(go:embed)，Monaco代码编辑器，工具导入导出 |

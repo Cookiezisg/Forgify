@@ -8,7 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/sunweilin/forgify/internal/builtin"
 	"github.com/sunweilin/forgify/internal/server"
+	"github.com/sunweilin/forgify/internal/service"
 	"github.com/sunweilin/forgify/internal/storage"
 )
 
@@ -17,6 +19,12 @@ func main() {
 	if err := storage.Init(dataDir); err != nil {
 		fmt.Fprintf(os.Stderr, "storage init failed: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Register built-in tools
+	toolSvc := service.NewToolService()
+	if err := builtin.Register(toolSvc); err != nil {
+		fmt.Fprintf(os.Stderr, "register built-in tools: %v\n", err)
 	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

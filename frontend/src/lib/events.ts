@@ -45,6 +45,7 @@ export const EventNames = {
   MailboxUpdated:     "mailbox.updated",
   WorkflowDeployed:   "workflow.deployed",
   OpenConversation:   "open.conversation",
+  ForgeCodeDetected:  "forge.code_detected",
 } as const;
 
 export type EventPayload<T = unknown> = T;

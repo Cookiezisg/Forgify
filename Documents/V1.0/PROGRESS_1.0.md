@@ -1,7 +1,11 @@
 # Forgify 开发进度
 
 **更新于**：2026-04-20  
-**当前状态**：Tier 1-4 全部完成
+**当前状态**：Tier 1-4 全部完成，V1.1 架构迭代规划中
+
+> **V1.1 迭代**：前端 Tab 架构重构 + Chat+Tool 分屏 + 工具系统增强。
+> 详见 `Documents/V1.1/PRD_1.1.md` 和 `Documents/V1.1/TDD_1.1.md`。
+> V1.1 完成后再继续 Tier 5（工作流画布）。
 
 ---
 
@@ -162,3 +166,5 @@ H2 → H1, I1, I2, I3
 | 2026-04-20 | C1+C2 完成：ConversationService，搜索/重命名/归档/自动命名，ChatContext，滚动控制，模型名称，空状态 |
 | 2026-04-20 | C3+C4 完成：文件拖拽/点击上传，Excel/PDF/Word/图片解析注入，三层上下文压缩引擎，CompactBanner |
 | 2026-04-20 | Tier 4 全部完成：Python沙箱(uv+venv+subprocess)，工具CRUD+测试历史，forge解析器(AST提取函数/参数/依赖)，4个内置工具(go:embed)，Monaco代码编辑器，工具导入导出 |
+| 2026-04-20 | Tier 4 补全：forge 锻造链路（ForgeCodeBlock+TestParamsModal+SaveToolModal），自动绑定，forgeToolId持久化 |
+| 2026-04-20 | V1.1 PRD+TDD 完成：Tab 架构重构 + Chat+Tool 分屏 + 工具系统增强（inline编辑/标签/版本/AI修复） |

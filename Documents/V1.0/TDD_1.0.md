@@ -4,6 +4,17 @@
 **日期**：2026-04-19  
 **配套 PRD**：PRD_1.0.md（v0.3）
 
+> **⚠️ V1.1 迭代说明**（2026-04-20）
+> 
+> 本文档定义了 V1.0 的技术架构，Tier 1-4 已按此实现。V1.1 对前端架构做了重大变更：
+> 
+> - **前端导航模型** → V1.1 引入 TabContext + TabBar + Layout 组件替代现有 SidebarNav + 固定页面切换
+> - **目录结构** → V1.1 新增 `components/layouts/` 目录，拆分 `pages/ChatPage.tsx` 和 `pages/AssetsPage.tsx`
+> - **状态管理** → V1.1 新增 TabContext（Tab 生命周期），现有 ChatContext 保留不变
+> - **后端 API** → V1.1 新增工具元数据、标签、版本、测试用例相关端点，现有端点全部不变
+> 
+> 详见 `Documents/V1.1/TDD_1.1.md`。后续 Tier 5-9 的前端开发应基于 V1.1 架构。
+
 ---
 
 ## 0. 技术选型总览

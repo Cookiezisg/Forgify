@@ -102,6 +102,26 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) batchArchiveConversations(w http.ResponseWriter, r *http.Request) {
+	var req struct{ IDs []string `json:"ids"` }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+		jsonError(w, "ids required", http.StatusBadRequest)
+		return
+	}
+	s.convSvc.BatchArchive(req.IDs)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) batchDeleteConversations(w http.ResponseWriter, r *http.Request) {
+	var req struct{ IDs []string `json:"ids"` }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+		jsonError(w, "ids required", http.StatusBadRequest)
+		return
+	}
+	s.convSvc.BatchDelete(req.IDs)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) searchConversations(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {

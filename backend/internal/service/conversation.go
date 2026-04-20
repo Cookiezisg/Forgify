@@ -110,9 +110,26 @@ func (s *ConversationService) Restore(id string) error {
 	return err
 }
 
+// Delete permanently removes a conversation and its messages from the database.
 func (s *ConversationService) Delete(id string) error {
 	_, err := storage.DB().Exec(`DELETE FROM conversations WHERE id=?`, id)
 	return err
+}
+
+// BatchArchive archives multiple conversations at once.
+func (s *ConversationService) BatchArchive(ids []string) error {
+	for _, id := range ids {
+		s.Archive(id)
+	}
+	return nil
+}
+
+// BatchDelete permanently removes multiple conversations.
+func (s *ConversationService) BatchDelete(ids []string) error {
+	for _, id := range ids {
+		s.Delete(id)
+	}
+	return nil
 }
 
 func (s *ConversationService) Search(query string) ([]*Conversation, error) {

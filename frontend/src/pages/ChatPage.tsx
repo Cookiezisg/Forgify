@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
-import { Plus, MessageCircle, Search, Archive, RotateCcw } from 'lucide-react'
+import { useState, useMemo, useCallback } from 'react'
+import { Plus, MessageCircle, Search, Archive, RotateCcw, CheckSquare, Square } from 'lucide-react'
+import { api } from '@/lib/api'
 import { ContextMenu } from '@/components/common/ContextMenu'
 import { useChatContext, type Conversation } from '@/context/ChatContext'
 import { useTabContext } from '@/context/TabContext'
@@ -263,6 +264,7 @@ export function ChatLeftPanel() {
     deleteConversation,
     showArchived,
     setShowArchived,
+    refreshConversations,
   } = useChatContext()
   const { openTab, activeTabId, tabs } = useTabContext()
 
@@ -272,6 +274,39 @@ export function ChatLeftPanel() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleBatchArchive = useCallback(async () => {
+    if (selected.size === 0) return
+    await api('/api/conversations/batch-archive', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    }).catch(() => {})
+    refreshConversations()
+    setSelected(new Set())
+    setSelectMode(false)
+  }, [selected, refreshConversations])
+
+  const handleBatchDelete = useCallback(async () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`永久删除 ${selected.size} 个对话？`)) return
+    await api('/api/conversations/batch-delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    }).catch(() => {})
+    refreshConversations()
+    setSelected(new Set())
+    setSelectMode(false)
+  }, [selected, refreshConversations])
 
   // Filter conversations by search
   const displayed = useMemo(() => {
@@ -323,8 +358,27 @@ export function ChatLeftPanel() {
         </div>
       </div>
 
-      {/* New chat button */}
-      <div style={{ padding: '2px 12px 6px' }}>
+      {/* Batch mode toolbar */}
+      {selectMode && (
+        <div style={{ padding: '4px 12px', display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#6b7280', flex: 1 }}>{selected.size} 已选</span>
+          <button onClick={handleBatchArchive} disabled={selected.size === 0}
+            style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid #e5e7eb', background: 'white', color: '#374151', cursor: 'pointer' }}>
+            归档
+          </button>
+          <button onClick={handleBatchDelete} disabled={selected.size === 0}
+            style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid #fca5a5', background: 'white', color: '#dc2626', cursor: 'pointer' }}>
+            删除
+          </button>
+          <button onClick={() => { setSelectMode(false); setSelected(new Set()) }}
+            style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: 'none', background: 'transparent', color: '#9b9a97', cursor: 'pointer' }}>
+            取消
+          </button>
+        </div>
+      )}
+
+      {/* New chat + select mode toggle */}
+      <div style={{ padding: '2px 12px 6px', display: 'flex', gap: 4 }}>
         <button
           onClick={async () => {
             const conv = await createConversation()
@@ -336,7 +390,7 @@ export function ChatLeftPanel() {
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            width: '100%',
+            flex: 1,
             padding: '6px 10px',
             borderRadius: 6,
             border: 'none',
@@ -352,6 +406,19 @@ export function ChatLeftPanel() {
           <Plus size={14} strokeWidth={2} />
           {t('chat.newChat')}
         </button>
+        {!selectMode && conversations.length > 0 && (
+          <button onClick={() => setSelectMode(true)} title="批量操作"
+            style={{
+              width: 28, height: 28, borderRadius: 6, border: 'none',
+              background: 'transparent', cursor: 'pointer', color: '#9b9a97',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#374151')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#9b9a97')}
+          >
+            <CheckSquare size={14} strokeWidth={1.6} />
+          </button>
+        )}
       </div>
 
       {/* Conversation list */}
@@ -378,11 +445,22 @@ export function ChatLeftPanel() {
                 />
               </div>
             ) : (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center' }}>
+                {selectMode && (
+                  <button onClick={() => toggleSelect(c.id)} style={{
+                    width: 24, height: 24, flexShrink: 0, border: 'none', background: 'none',
+                    cursor: 'pointer', color: selected.has(c.id) ? '#2383e2' : '#d1d5db',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {selected.has(c.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                  </button>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
               <ConversationItem
-                key={c.id}
                 conv={c}
                 active={activeId === c.id}
                 onClick={() => {
+                  if (selectMode) { toggleSelect(c.id); return }
                   const layout = c.assetType === 'tool' && c.assetId ? 'chat-tool' as const : 'chat' as const
                   openTab({
                     layout,
@@ -395,6 +473,8 @@ export function ChatLeftPanel() {
                 onArchive={() => archiveConversation(c.id)}
                 onDelete={() => deleteConversation(c.id)}
               />
+                </div>
+              </div>
             )
           )
         )}

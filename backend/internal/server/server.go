@@ -68,6 +68,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/conversations/{id}/unbind", s.unbindConversation)
 	s.mux.HandleFunc("GET /api/conversations/archived", s.listArchivedConversations)
 	s.mux.HandleFunc("GET /api/conversations/search", s.searchConversations)
+	s.mux.HandleFunc("POST /api/conversations/batch-archive", s.batchArchiveConversations)
+	s.mux.HandleFunc("POST /api/conversations/batch-delete", s.batchDeleteConversations)
 	s.mux.HandleFunc("GET /api/asset-conversations/{assetId}", s.listConversationsByAsset)
 
 	// Models

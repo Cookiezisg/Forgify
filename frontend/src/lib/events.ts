@@ -29,6 +29,7 @@ export const EventNames = {
   ForgeCodeDetected: 'forge.code_detected',
   ForgeCodeUpdated:  'forge.code_updated',
   ForgeCodeStreaming: 'forge.code_streaming',
+  ForgeNameGenerated: 'forge.name_generated',
   Notification:      'notification',
   MailboxUpdated:    'mailbox.updated',
 } as const

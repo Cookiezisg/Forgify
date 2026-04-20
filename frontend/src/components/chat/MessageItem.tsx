@@ -191,8 +191,13 @@ export function MessageItem({ message, conversationId }: Props) {
                       >
                         {String(children).replace(/\n$/, '')}
                       </SyntaxHighlighter>
-                      {isPython && message.forgeToolId && message.status === 'done' && (
-                        <ForgeCodeBlock toolId={message.forgeToolId} conversationId={conversationId} />
+                      {isPython && message.status === 'done' && (message.forgeToolId || message.forgeCode) && (
+                        <ForgeCodeBlock
+                          toolId={message.forgeToolId}
+                          code={message.forgeCode}
+                          funcName={message.forgeFuncName}
+                          conversationId={conversationId}
+                        />
                       )}
                     </div>
                   ) : (

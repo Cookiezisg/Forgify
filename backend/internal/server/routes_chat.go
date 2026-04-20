@@ -282,40 +282,48 @@ func doStream(
 			}
 			convSvc.TouchUpdatedAt(conversationID)
 
-			// For unbound conversations: detect Python code blocks and save as draft tool
-			// (so ForgeCodeBlock in frontend can reference the toolId)
+			// For unbound conversations: detect Python code blocks.
+			// DON'T create a tool — just notify frontend that code was found.
+			// Also start a background request to generate name/description for when user clicks "save".
 			conv, _ := convSvc.Get(conversationID)
 			isBound := conv != nil && conv.AssetID != nil && conv.AssetType != nil && *conv.AssetType == "tool"
 			if !isBound {
 				detected := forge.DetectCodeInResponse(content)
 				if detected != nil && detected.FuncName != "" {
-					params := make([]service.ToolParameter, len(detected.Params))
-					for i, p := range detected.Params {
-						params[i] = service.ToolParameter{Name: p.Name, Type: p.Type, Required: p.Required, Default: p.Default}
-					}
-					displayName := detected.FuncName
-					if detected.Docstring != "" {
-						displayName = detected.Docstring
-					}
-					tool := &service.Tool{
-						Name: detected.FuncName, DisplayName: displayName, Description: detected.Docstring,
-						Code: detected.Code, Requirements: detected.Requirements, Parameters: params,
-						Category: "other", Status: "draft",
-					}
-					existing, _ := toolSvc.GetByName(detected.FuncName)
-					if existing != nil {
-						tool.ID = existing.ID
-					}
-					if toolSvc.Save(tool) == nil {
-						// Save toolId in message metadata for frontend ForgeCodeBlock
-						storage.DB().Exec(`
-							UPDATE messages SET metadata = json_object('forgeToolId', ?)
-							WHERE id = (SELECT id FROM messages WHERE conversation_id = ? AND role = 'assistant'
-							ORDER BY created_at DESC LIMIT 1)`, tool.ID, conversationID)
-						bridge.Emit(events.ForgeCodeDetected, map[string]any{
-							"conversationId": conversationID, "toolId": tool.ID, "funcName": detected.FuncName,
+					// Tell frontend: "there's code here, show save button"
+					// No tool is created yet — user must click save first.
+					bridge.Emit(events.ForgeCodeDetected, map[string]any{
+						"conversationId": conversationID,
+						"funcName":       detected.FuncName,
+						"code":           detected.Code,
+					})
+
+					// Background: ask cheap model to generate a nice name and description
+					go func() {
+						keyProvider := func(provider string) (key, baseURL string, err error) {
+							return service.GetRawKeyForProvider(provider)
+						}
+						gw := model.New(keyProvider, bridge)
+						cheapLLM, _, err := gw.GetModel(context.Background(), model.PurposeCheap)
+						if err != nil {
+							return
+						}
+						resp, err := cheapLLM.Generate(context.Background(), []*schema.Message{
+							schema.UserMessage(fmt.Sprintf(
+								"为以下 Python 工具生成一个简洁的中文名称（不超过10个字）和一句话描述（不超过30个字）。\n只返回JSON格式：{\"name\": \"...\", \"description\": \"...\"}\n\n```python\n%s\n```",
+								detected.Code)),
 						})
-					}
+						if err != nil {
+							return
+						}
+						// Send the generated name/description to frontend
+						bridge.Emit("forge.name_generated", map[string]any{
+							"conversationId": conversationID,
+							"funcName":       detected.FuncName,
+							"code":           detected.Code,
+							"aiResponse":     resp.Content,
+						})
+					}()
 				}
 			}
 

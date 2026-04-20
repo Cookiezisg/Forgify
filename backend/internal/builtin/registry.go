@@ -12,15 +12,6 @@ import (
 //go:embed tools/**/*.py
 var toolsFS embed.FS
 
-// builtinMeta holds metadata parsed from @-prefixed comments in Python files.
-type builtinMeta struct {
-	Version     string
-	Category    string
-	DisplayName string
-	Description string
-	RequiresKey string
-}
-
 // Register scans all embedded Python tool files and upserts them into the tools table.
 // Existing tools with the same version are skipped (cache hit).
 func Register(toolSvc *service.ToolService) error {
@@ -35,8 +26,8 @@ func Register(toolSvc *service.ToolService) error {
 		}
 		code := string(data)
 
-		meta := parseMeta(code)
-		if meta == nil {
+		meta := forge.ParseMeta(code)
+		if meta == nil || !meta.IsBuiltin {
 			return nil // not a @builtin file
 		}
 
@@ -86,47 +77,4 @@ func Register(toolSvc *service.ToolService) error {
 	})
 }
 
-// parseMeta extracts @builtin metadata from Python file comments.
-func parseMeta(code string) *builtinMeta {
-	lines := strings.Split(code, "\n")
-	meta := &builtinMeta{}
-	isBuiltin := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "#") {
-			if trimmed != "" {
-				break // stop at first non-comment non-empty line
-			}
-			continue
-		}
-		comment := strings.TrimPrefix(trimmed, "#")
-		comment = strings.TrimSpace(comment)
-
-		switch {
-		case comment == "@builtin":
-			isBuiltin = true
-		case strings.HasPrefix(comment, "@version "):
-			meta.Version = strings.TrimPrefix(comment, "@version ")
-		case strings.HasPrefix(comment, "@category "):
-			meta.Category = strings.TrimPrefix(comment, "@category ")
-		case strings.HasPrefix(comment, "@display_name "):
-			meta.DisplayName = strings.TrimPrefix(comment, "@display_name ")
-		case strings.HasPrefix(comment, "@description "):
-			meta.Description = strings.TrimPrefix(comment, "@description ")
-		case strings.HasPrefix(comment, "@requires_key "):
-			meta.RequiresKey = strings.TrimPrefix(comment, "@requires_key ")
-		}
-	}
-
-	if !isBuiltin {
-		return nil
-	}
-	if meta.Version == "" {
-		meta.Version = "1.0"
-	}
-	if meta.Category == "" {
-		meta.Category = "other"
-	}
-	return meta
-}
+// parseMeta is now in forge.ParseMeta — shared between builtin and user-generated tools.

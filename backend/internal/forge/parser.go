@@ -115,6 +115,68 @@ func ExtractCodeBlock(content string) string {
 	return strings.TrimSpace(rest[:end])
 }
 
+// CodeMeta holds metadata extracted from @-prefixed comments in Python code.
+type CodeMeta struct {
+	DisplayName string
+	Description string
+	Category    string
+	Version     string
+	RequiresKey string
+	IsBuiltin   bool
+}
+
+// ParseMeta extracts @display_name, @description, @category etc. from Python code comments.
+// Works for both builtin tools (@builtin required) and user-generated tools (@builtin optional).
+func ParseMeta(code string) *CodeMeta {
+	lines := strings.Split(code, "\n")
+	meta := &CodeMeta{}
+	found := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "#") {
+			if trimmed != "" {
+				break
+			}
+			continue
+		}
+		comment := strings.TrimPrefix(trimmed, "#")
+		comment = strings.TrimSpace(comment)
+
+		switch {
+		case comment == "@builtin":
+			meta.IsBuiltin = true
+			found = true
+		case strings.HasPrefix(comment, "@version "):
+			meta.Version = strings.TrimPrefix(comment, "@version ")
+			found = true
+		case strings.HasPrefix(comment, "@category "):
+			meta.Category = strings.TrimPrefix(comment, "@category ")
+			found = true
+		case strings.HasPrefix(comment, "@display_name "):
+			meta.DisplayName = strings.TrimPrefix(comment, "@display_name ")
+			found = true
+		case strings.HasPrefix(comment, "@description "):
+			meta.Description = strings.TrimPrefix(comment, "@description ")
+			found = true
+		case strings.HasPrefix(comment, "@requires_key "):
+			meta.RequiresKey = strings.TrimPrefix(comment, "@requires_key ")
+			found = true
+		}
+	}
+
+	if !found {
+		return nil
+	}
+	if meta.Category == "" {
+		meta.Category = "other"
+	}
+	if meta.Version == "" {
+		meta.Version = "1.0"
+	}
+	return meta
+}
+
 func normalizeType(t string) string {
 	switch t {
 	case "str":

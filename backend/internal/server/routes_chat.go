@@ -283,47 +283,22 @@ func doStream(
 			convSvc.TouchUpdatedAt(conversationID)
 
 			// For unbound conversations: detect Python code blocks.
-			// DON'T create a tool — just notify frontend that code was found.
-			// Also start a background request to generate name/description for when user clicks "save".
+			// DON'T create a tool — just notify frontend with metadata from @-comments.
+			// User must click "Save as Tool" to actually create the tool.
 			conv, _ := convSvc.Get(conversationID)
 			isBound := conv != nil && conv.AssetID != nil && conv.AssetType != nil && *conv.AssetType == "tool"
 			if !isBound {
 				detected := forge.DetectCodeInResponse(content)
 				if detected != nil && detected.FuncName != "" {
-					// Tell frontend: "there's code here, show save button"
-					// No tool is created yet — user must click save first.
+					// Send code + metadata (from @display_name, @description, @category comments)
 					bridge.Emit(events.ForgeCodeDetected, map[string]any{
 						"conversationId": conversationID,
 						"funcName":       detected.FuncName,
 						"code":           detected.Code,
+						"displayName":    detected.DisplayName,
+						"description":    detected.Description,
+						"category":       detected.Category,
 					})
-
-					// Background: ask cheap model to generate a nice name and description
-					go func() {
-						keyProvider := func(provider string) (key, baseURL string, err error) {
-							return service.GetRawKeyForProvider(provider)
-						}
-						gw := model.New(keyProvider, bridge)
-						cheapLLM, _, err := gw.GetModel(context.Background(), model.PurposeCheap)
-						if err != nil {
-							return
-						}
-						resp, err := cheapLLM.Generate(context.Background(), []*schema.Message{
-							schema.UserMessage(fmt.Sprintf(
-								"为以下 Python 工具生成一个简洁的中文名称（不超过10个字）和一句话描述（不超过30个字）。\n只返回JSON格式：{\"name\": \"...\", \"description\": \"...\"}\n\n```python\n%s\n```",
-								detected.Code)),
-						})
-						if err != nil {
-							return
-						}
-						// Send the generated name/description to frontend
-						bridge.Emit("forge.name_generated", map[string]any{
-							"conversationId": conversationID,
-							"funcName":       detected.FuncName,
-							"code":           detected.Code,
-							"aiResponse":     resp.Content,
-						})
-					}()
 				}
 			}
 

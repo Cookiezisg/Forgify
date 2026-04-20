@@ -196,6 +196,9 @@ export function MessageItem({ message, conversationId }: Props) {
                           toolId={message.forgeToolId}
                           code={message.forgeCode}
                           funcName={message.forgeFuncName}
+                          displayName={message.forgeDisplayName}
+                          description={message.forgeDescription}
+                          category={message.forgeCategory}
                           conversationId={conversationId}
                         />
                       )}

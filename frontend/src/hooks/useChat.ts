@@ -10,8 +10,11 @@ export interface ChatMessage {
   contentType: string
   modelId?: string
   forgeToolId?: string
-  forgeCode?: string      // Python code detected in this message (no tool created yet)
-  forgeFuncName?: string  // Function name from detected code
+  forgeCode?: string          // Python code detected (no tool created yet)
+  forgeFuncName?: string      // Function name
+  forgeDisplayName?: string   // AI-generated display name from @display_name
+  forgeDescription?: string   // AI-generated description from @description
+  forgeCategory?: string      // Category from @category
   status: 'done' | 'streaming' | 'error'
 }
 
@@ -105,16 +108,14 @@ export function useChat(conversationId: string | null) {
         }
       ),
       // Forge: when AI response contains Python code, mark the message for "save as tool" UI
-      onEvent<{ conversationId: string; toolId?: string; funcName: string; code?: string }>(
+      onEvent<{ conversationId: string; toolId?: string; funcName: string; code?: string; displayName?: string; description?: string; category?: string }>(
         EventNames.ForgeCodeDetected,
         (e) => {
           if (e.conversationId !== conversationId) return
           if (e.toolId) {
-            // Tool already created (bound conversation modification)
             setMessages((prev) => attachForgeToolId(prev, e.toolId!))
           } else if (e.code) {
-            // Code detected but no tool yet — mark for "save as tool" button
-            setMessages((prev) => attachForgeCode(prev, e.code!, e.funcName))
+            setMessages((prev) => attachForgeCode(prev, e.code!, e.funcName, e.displayName, e.description, e.category))
           }
         }
       ),
@@ -234,11 +235,11 @@ function attachForgeToolId(messages: ChatMessage[], toolId: string): ChatMessage
   return messages
 }
 
-function attachForgeCode(messages: ChatMessage[], code: string, funcName: string): ChatMessage[] {
+function attachForgeCode(messages: ChatMessage[], code: string, funcName: string, displayName?: string, description?: string, category?: string): ChatMessage[] {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === 'assistant' && messages[i].status === 'done') {
       return messages.map((m, idx) =>
-        idx === i ? { ...m, forgeCode: code, forgeFuncName: funcName } : m
+        idx === i ? { ...m, forgeCode: code, forgeFuncName: funcName, forgeDisplayName: displayName, forgeDescription: description, forgeCategory: category } : m
       )
     }
   }

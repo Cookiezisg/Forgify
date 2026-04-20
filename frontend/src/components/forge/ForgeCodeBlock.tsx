@@ -1,48 +1,30 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Play, Save, Loader } from 'lucide-react'
 import { TestParamsModal } from './TestParamsModal'
 import { api } from '@/lib/api'
-import { onEvent } from '@/lib/events'
 import { useT } from '@/lib/i18n'
 
 interface Props {
-  toolId?: string         // Set when tool already exists (bound conversation)
-  code?: string           // Set when code detected but no tool yet (unbound)
-  funcName?: string       // Function name from detected code
+  toolId?: string           // Set when tool already exists (bound conversation)
+  code?: string             // Set when code detected but no tool yet
+  funcName?: string
+  displayName?: string      // From @display_name in code comments
+  description?: string      // From @description
+  category?: string         // From @category
   conversationId?: string
   onToolSaved?: (tool: { id: string; displayName: string }) => void
 }
 
-export function ForgeCodeBlock({ toolId, code, funcName, conversationId, onToolSaved }: Props) {
+export function ForgeCodeBlock({
+  toolId, code, funcName, displayName, description, category,
+  conversationId, onToolSaved,
+}: Props) {
   const t = useT()
   const [showTest, setShowTest] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [aiName, setAiName] = useState<{ name: string; description: string } | null>(null)
 
-  // Listen for AI-generated name/description from backend
-  useEffect(() => {
-    if (toolId || !funcName) return // Only for unsaved code
-    const off = onEvent<{ conversationId: string; funcName: string; aiResponse: string }>(
-      'forge.name_generated',
-      (e) => {
-        if (e.funcName !== funcName) return
-        try {
-          // Parse JSON from AI response — might have markdown wrapping
-          let json = e.aiResponse
-          const match = json.match(/\{[\s\S]*\}/)
-          if (match) json = match[0]
-          const parsed = JSON.parse(json)
-          setAiName({ name: parsed.name || funcName, description: parsed.description || '' })
-        } catch {
-          setAiName({ name: funcName, description: '' })
-        }
-      }
-    )
-    return off
-  }, [toolId, funcName])
-
-  // If tool already exists, show test button only (for bound conversations)
+  // If tool already exists (bound conversation), show test button only
   if (toolId) {
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -67,16 +49,15 @@ export function ForgeCodeBlock({ toolId, code, funcName, conversationId, onToolS
   const handleSave = async () => {
     setSaving(true)
     try {
-      // Create the tool via API
       const tool = await api<{ id: string; displayName: string }>('/api/tools', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: funcName,
-          displayName: aiName?.name || funcName,
-          description: aiName?.description || '',
+          displayName: displayName || funcName,
+          description: description || '',
           code,
-          category: 'other',
+          category: category || 'other',
         }),
       })
 
@@ -115,22 +96,16 @@ export function ForgeCodeBlock({ toolId, code, funcName, conversationId, onToolS
         }}
       >
         {saving ? (
-          <>
-            <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} />
-            {aiName ? '保存中...' : '正在生成描述...'}
-          </>
+          <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> 保存中...</>
         ) : saved ? (
           <>✓ 已保存</>
         ) : (
-          <>
-            <Save size={12} strokeWidth={2} />
-            保存为工具
-          </>
+          <><Save size={12} strokeWidth={2} /> 保存为工具</>
         )}
       </button>
-      {aiName && !saved && !saving && (
+      {displayName && !saved && (
         <span style={{ fontSize: 11, color: '#9b9a97' }}>
-          {aiName.name}
+          {displayName}
         </span>
       )}
     </div>

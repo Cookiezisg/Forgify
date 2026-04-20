@@ -53,6 +53,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     loadConversations()
   }, [loadConversations])
 
+  // Refresh when conversations change externally (e.g. new conversation from tool mini sidebar)
+  useEffect(() => {
+    const handler = () => loadConversations()
+    window.addEventListener('conversation:changed', handler)
+    return () => window.removeEventListener('conversation:changed', handler)
+  }, [loadConversations])
+
   // Load archived when toggled
   useEffect(() => {
     if (showArchived) loadArchived()

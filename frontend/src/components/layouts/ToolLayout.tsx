@@ -43,6 +43,17 @@ function MiniSidebar({ toolId }: { toolId: string }) {
 
   useEffect(() => { load() }, [load])
 
+  // Refresh when conversations change (new binding, new conversation, etc.)
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('tool:changed', handler)
+    window.addEventListener('conversation:changed', handler)
+    return () => {
+      window.removeEventListener('tool:changed', handler)
+      window.removeEventListener('conversation:changed', handler)
+    }
+  }, [load])
+
   const handleNewConv = async () => {
     try {
       const conv = await api<AssetConversation>('/api/conversations', {
@@ -50,6 +61,9 @@ function MiniSidebar({ toolId }: { toolId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assetId: toolId, assetType: 'tool' }),
       })
+      // Notify other components (chat list) about the new conversation
+      window.dispatchEvent(new CustomEvent('conversation:changed'))
+      load() // refresh mini sidebar
       openTab({ layout: 'chat-tool', label: conv.title, conversationId: conv.id, toolId })
     } catch {}
   }

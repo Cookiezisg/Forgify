@@ -479,44 +479,35 @@ export function ChatLeftPanel() {
           )
         )}
 
-        {/* Archived section */}
-        {!searchQuery && (
-          <div style={{ marginTop: 8 }}>
-            <button
-              onClick={() => setShowArchived(!showArchived)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: 6,
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                fontSize: 12,
-                color: '#9b9a97',
-                transition: 'background 100ms',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <Archive size={12} strokeWidth={1.6} />
-              {showArchived ? t('chat.hideArchived') : t('chat.showArchived')}
-            </button>
-
-            {showArchived &&
-              archivedConversations.map((c) => (
-                <ArchivedItem
-                  key={c.id}
-                  conv={c}
-                  onRestore={() => restoreConversation(c.id)}
-                  onDelete={() => deleteConversation(c.id)}
-                />
-              ))}
-          </div>
-        )}
       </div>
+
+      {/* Archived section — fixed at bottom */}
+      {!searchQuery && (
+        <div style={{ flexShrink: 0, borderTop: '1px solid #f3f4f6', padding: '0 8px' }}>
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+              padding: '6px 10px', borderRadius: 6, border: 'none',
+              background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#9b9a97',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            <Archive size={12} strokeWidth={1.6} />
+            {showArchived ? t('chat.hideArchived') : t('chat.showArchived')}
+          </button>
+          {showArchived && (
+            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+              {archivedConversations.map((c) => (
+                <ArchivedItem key={c.id} conv={c}
+                  onRestore={() => restoreConversation(c.id)}
+                  onDelete={() => deleteConversation(c.id)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

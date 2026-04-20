@@ -64,6 +64,18 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	if toolSummary != "" {
 		systemMsgs = append(systemMsgs, schema.SystemMessage(toolSummary))
 	}
+
+	// If conversation is bound to a tool, inject the tool's current code as context
+	conv, _ := s.convSvc.Get(req.ConversationID)
+	if conv != nil && conv.AssetID != nil && conv.AssetType != nil && *conv.AssetType == "tool" {
+		boundTool, _ := s.toolSvc.Get(*conv.AssetID)
+		if boundTool != nil {
+			toolContext := fmt.Sprintf("[当前绑定工具: %s]\n函数名: %s\n描述: %s\n状态: %s\n\n当前代码:\n```python\n%s\n```\n\n用户可能要求修改此工具。请使用 update_tool_code 工具进行修改。",
+				boundTool.DisplayName, boundTool.Name, boundTool.Description, boundTool.Status, boundTool.Code)
+			systemMsgs = append(systemMsgs, schema.SystemMessage(toolContext))
+		}
+	}
+
 	history = append(systemMsgs, history...)
 
 	// Get model

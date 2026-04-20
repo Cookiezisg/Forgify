@@ -9,25 +9,28 @@
 
 | 决策 | 选择 | 理由 |
 |---|---|---|
-| 代码生成模型 | PurposeCodegen | 代码质量优先 |
-| 代码提取方式 | AST 解析 + 正则 fallback | 提取函数名/参数/docstring |
-| 需求识别 | system prompt 约束 AI 输出规范格式 | 不需要额外分类器 |
-| 锻造会话 | 复用 ConversationService，标记 conversation.mode='forge' | 复用消息流 UI |
+| 代码生成 | 用户选择的 LLM + ForgeSystemPrompt | 灵活，质量取决于模型 |
+| 代码提取 | Python AST (`ast.parse`) + 正则 fallback | AST 100% 准确提取函数签名、泛型类型如 `list[int]`、@元数据 |
+| 元数据标注 | `# @version / @category / @display_name / @description` | 代码即文档，零额外 API 调用 |
+| 标注同步 | `NormalizeCodeAnnotations()` | DB 字段 = 权威，代码标注跟随同步 |
+| 锻造会话 | 复用 ConversationService，ForgeSystemPrompt 注入 | 复用消息流 UI |
+| 工具调用 | Eino InvokableTool (create_tool / update_tool_code) | 绑定对话用 tool calling，未绑定用 DetectCodeInResponse |
 
 ---
 
 ## 2. 目录结构
 
 ```
-internal/
-└── forge/
-    ├── agent.go     # 锻造 Agent（包含代码生成 system prompt）
-    └── parser.go    # 从 Python 源码提取函数签名和参数
+internal/forge/
+├── agent.go             # ForgeSystemPrompt + DetectCodeInResponse
+├── parser.go            # ParseFunction (AST+regex fallback)、ParseMeta、NormalizeCodeAnnotations、ExtractCodeBlock
+├── ast_parser.go        # ParseFunctionAST — 调用 Python subprocess 100% 准确解析
+├── parse_function.py    # go:embed 嵌入的 Python AST 脚本
+└── tools.go             # Eino InvokableTool: CreateToolTool / UpdateToolCodeTool
 
-frontend/src/
-└── components/forge/
-    ├── ForgeCodeBlock.tsx  # 代码块 + 测试/保存按钮
-    └── TestParamsModal.tsx # 测试参数填写弹窗
+frontend/src/components/forge/
+├── ForgeCodeBlock.tsx   # 代码块检测 + "保存为工具"按钮（未绑定对话用）
+└── SaveToolModal.tsx    # 保存工具弹窗（名称/描述/分类表单）
 ```
 
 ---
@@ -111,88 +114,48 @@ func normalizeType(t string) string {
 }
 ```
 
-### `internal/forge/agent.go`
+### `internal/forge/agent.go`（当前实现）
 
 ```go
-package forge
+// ForgeSystemPrompt — 注入到锻造对话的 system prompt
+const ForgeSystemPrompt = `你是 Forgify 的工具锻造助手。
+代码格式要求：
+  # @version 1.0
+  # @category 分类（email/data/web/file/system/other 选一个）
+  # @display_name 中文工具名
+  # @description 一句话描述
+  def function_name(param1: str, param2: int = 0) -> dict:
+      """功能描述"""
+      return {"result": "..."}
+前四行 @version/@category/@display_name/@description 注释绝对不能省略。`
 
-import (
-    "context"
-    "strings"
-
-    "forgify/internal/model"
-    "forgify/internal/service"
-    "forgify/internal/events"
-
-    "github.com/cloudwego/eino/schema"
-)
-
-const forgeSystemPrompt = `你是 Forgify 的工具锻造助手。你的任务是帮助用户创建可运行的 Python 工具。
-
-**工具代码规范**（必须严格遵守）：
-1. 只有一个顶层函数，使用 snake_case 命名
-2. 所有参数必须有类型注解（str/int/float/bool/list/dict）
-3. 返回值类型必须是 dict
-4. 函数第一行必须是 docstring，说明功能
-5. 可以使用 import（依赖会自动安装）
-
-**示例格式**：
-\`\`\`python
-def send_email(to: str, subject: str, body: str) -> dict:
-    """通过 SMTP 发送邮件到指定地址"""
-    import smtplib
-    # ... 实现
-    return {"success": True, "message": "邮件已发送"}
-\`\`\`
-
-生成代码后，在代码块下方简短说明用法，不需要解释每一行代码。`
-
-type ForgeAgent struct {
-    gateway *model.ModelGateway
-    toolSvc *service.ToolService
-    bridge  *events.Bridge
+// DetectCodeInResponse — 检查 AI 回复是否包含 Python 代码块并解析
+// 用于未绑定工具的对话（用户手动"保存为工具"）
+func DetectCodeInResponse(content string) *DetectResult {
+    code := ExtractCodeBlock(content)
+    // AST 解析 → 正则 fallback → 提取 @metadata
+    // 返回 DetectResult{Code, FuncName, DisplayName, Description, Category, Params, Requirements}
 }
+```
 
-// extractCodeBlock 从 AI 回复中提取第一个 python 代码块
-func extractCodeBlock(content string) string {
-    start := strings.Index(content, "```python")
-    if start == -1 { return "" }
-    start += len("```python")
-    end := strings.Index(content[start:], "```")
-    if end == -1 { return "" }
-    return strings.TrimSpace(content[start : start+end])
-}
+**两种锻造路径：**
+1. **未绑定对话**：`DetectCodeInResponse` → SSE `forge.code_detected` → 前端 ForgeCodeBlock 显示"保存为工具"按钮 → 用户点击后 `POST /api/tools` 创建
+2. **已绑定对话**：Eino tool calling（`update_tool_code` InvokableTool）→ 代码存为 pending change → 用户在右侧面板 diff review → 接受/拒绝
 
-// OnAssistantMessage 在 ChatService 收到完整 AI 回复后调用
-// 检测是否包含 Python 代码块，如有则解析并保存草稿工具
-func (a *ForgeAgent) OnAssistantMessage(
-    ctx context.Context, convID string, content string,
-) error {
-    code := extractCodeBlock(content)
-    if code == "" { return nil }
+### `internal/forge/parser.go`（当前实现）
 
-    funcName, params, reqs, err := ParseFunction(code)
-    if err != nil || funcName == "" { return nil }
+关键函数：
+- `ParseFunction(code)` — AST 优先 + 正则 fallback，提取函数签名/参数/依赖
+- `ParseFunctionAST(code)` — 调用 Python subprocess（`parse_function.py` go:embed），100% 准确
+- `ParseMeta(code)` — 提取 `# @display_name` / `# @description` / `# @category` / `# @version` / `# @builtin` / `# @custom`
+- `NormalizeCodeAnnotations(code, ...)` — 确保代码 `# @` 标注与 DB 字段一致（幂等）
+- `ExtractCodeBlock(content)` — 从 markdown 中提取第一个 ` ```python ` 代码块
 
-    // 保存草稿工具（status='draft'）
-    tool := &service.Tool{
-        Name:         funcName,
-        DisplayName:  funcName, // 用户保存时可修改
-        Code:         code,
-        Requirements: reqs,
-        Parameters:   params,
-        Status:       "draft",
-    }
-    if err := a.toolSvc.Save(tool); err != nil { return err }
+### `internal/forge/tools.go`（Eino 工具定义）
 
-    // 通知前端：当前消息包含可测试的代码块
-    a.bridge.Emit(events.ForgeCodeDetected, map[string]any{
-        "conversationId": convID,
-        "toolId":         tool.ID,
-        "funcName":       funcName,
-    })
-    return nil
-}
+```go
+// CreateToolTool — 未绑定对话中 AI 调用创建工具（当前禁用，改为用户手动保存）
+// UpdateToolCodeTool — 已绑定对话中 AI 调用更新工具代码（存为 pending change）
 ```
 
 ---

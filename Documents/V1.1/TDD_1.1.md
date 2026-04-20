@@ -71,11 +71,14 @@ const STORAGE_KEY = 'forgify.tabs'
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-- 每个 Tab：图标 + label + 关闭按钮（pinned 的没有关闭按钮）
+- 每个 Tab：图标 + label + 关闭按钮（pinned 的显示 Pin 图标代替 ×）
 - 活跃 Tab 有底部高亮线
 - `[+]` 按钮：打开新的空 Chat Tab
-- Tab 过多时水平滚动（`overflow-x: auto`）
-- Tab 宽度：最大 180px，最小 80px，文字超出截断
+- Tab 过多时水平滚动（`overflow-x: auto, scrollbarWidth: 'none'`）
+- Tab 宽度：最大 180px，最小 60px，文字超出截断
+- **拖拽排序**：HTML5 原生 drag-and-drop，拖拽时 `opacity: 0.4`，目标位置蓝色 `boxShadow` 指示线
+- **右键上下文菜单**：固定/取消固定、关闭、关闭其他、关闭右侧、关闭全部
+- **窗口拖拽**：TabBar 外层 `WebkitAppRegion: 'drag'`，Tab 按钮和 + 按钮 `no-drag`
 
 ### 1.4 Layout 组件
 
@@ -155,8 +158,14 @@ interface Props {
 }
 ```
 
-**展开状态：** 左右两栏 + 中间拖拽条  
-**收起状态：** 左侧全宽 + 右侧 36px 竖条
+**展开状态：** 左右两栏 + 中间拖拽条 + 双向折叠按钮  
+**右侧收起状态：** 左侧全宽 + 右侧 36px 竖条（📦 + 工具名竖排）  
+**左侧收起状态：** 左侧 36px 竖条（💬 + 对话标题竖排）+ 右侧全宽
+
+**实现**：`ChatToolLayout.tsx` 直接实现分屏（未使用通用 SplitContainer），`collapsedSide: 'none' | 'left' | 'right'` 状态机确保互斥。
+
+**左侧折叠按钮**：浮在聊天内容上方，用 `position: absolute` + 白色渐变遮罩（`linear-gradient(white 30%, transparent)`），消息自然淡出。
+**右侧折叠按钮**：header bar + `borderBottom: 1px solid #f3f4f6` + ChevronRight 图标。
 
 ### 1.6 App.tsx 重构
 
@@ -339,12 +348,27 @@ POST   /api/tools/{id}/test-cases       // body: { name, params }
 DELETE /api/test-cases/{id}
 ```
 
-### 2.3 ToolService 扩展
+### 2.3 元数据标注同步（NormalizeCodeAnnotations）
+
+```go
+// forge/parser.go — 确保代码 # @ 注释与 DB 字段一致
+func NormalizeCodeAnnotations(code, displayName, description, category, version string, isBuiltin bool, requiresKey string) string
+```
+
+算法：扫描代码顶部 `# @xxx` 行块 → 替换为完整标注（固定顺序：@builtin/@custom → @version → @category → @display_name → @description → @requires_key）→ 保留非标注注释 → 确保空行分隔。
+
+**调用位置：**
+- `Save()` — INSERT 前自动归一化，覆盖所有保存路径
+- `UpdateMeta()` — read-modify-write，同时更新 DB 字段 + 代码标注
+- `AcceptPendingChange()` — 接受 AI 代码后从新代码解析元数据更新 DB，再归一化
+
+### 2.4 ToolService 扩展
 
 ```go
 // service/tool.go 新增方法
 
 func (s *ToolService) UpdateMeta(id string, displayName, description, category *string) error
+// 现在是 read-modify-write：读取完整 tool → 合并字段 → NormalizeCodeAnnotations → 更新 DB+code
 func (s *ToolService) AddTag(id, tag string) error
 func (s *ToolService) RemoveTag(id, tag string) error
 func (s *ToolService) ListTags(id string) ([]string, error)
@@ -445,11 +469,13 @@ Phase 3: 后端增强（约 3 个文件）
   ├── service/tool.go 扩展
   └── server/routes_tools.go 新端点
 
-Phase 4: 工具 UI 增强（约 4 个文件）
-  ├── ToolMainView inline 编辑
-  ├── TagBar 组件
-  ├── VersionPanel 组件
-  └── TestCaseSelector 组件
+Phase 4: 工具 UI 增强（已完成大部分）
+  ├── ToolMainView — InlineEdit (名称/描述) + InlineSelect (分类下拉) + 版本 badge
+  ├── TagBar 组件 — 标签增删
+  ├── VersionHistoryView — 版本列表(180px) + Monaco DiffEditor(side-by-side) + 恢复按钮
+  │   └── 通过 ToolMainView 的 historyMode 状态切换，替换 tabs 区域
+  ├── NormalizeCodeAnnotations — UI 编辑 → 代码 # @ 标注同步
+  └── TestCaseSelector 组件（待做）
 ```
 
 ---

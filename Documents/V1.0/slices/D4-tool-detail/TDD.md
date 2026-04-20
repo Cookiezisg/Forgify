@@ -9,23 +9,30 @@
 
 | 决策 | 选择 | 理由 |
 |---|---|---|
-| 布局 | 资产 Tab 右侧主区的右半部分 | 和 PRD 对齐，不是抽屉 |
+| 布局 | 独立 Tool Tab 或 Chat+Tool 右侧面板 | Tab 系统统一管理 |
 | 代码编辑器 | Monaco Editor（`@monaco-editor/react`）| Python 语法高亮、只读/编辑切换 |
-| 参数解析 | 调用 Go 层 `forge.ParseFunction` | 复用 D2 的 AST 解析 |
-| 测试历史 | `tool_test_history` 表（006 迁移，D4 已定义）| 最多 20 条 |
+| Diff 查看 | Monaco DiffEditor（同一包的 named export）| side-by-side diff，零新依赖 |
+| 参数解析 | Python AST（`forge.ParseFunctionAST`）+ 正则 fallback | 100% 准确，支持泛型 `list[int]` |
+| Inline 编辑 | InlineEdit（文本）+ InlineSelect（下拉枚举）| Notion 风格，即改即存 |
+| 元数据同步 | `PATCH /meta` → `NormalizeCodeAnnotations` | DB + 代码标注双向一致 |
+| 测试历史 | `tool_test_history` 表 | 最多 20 条 |
+| 版本历史 | `tool_versions` 表 + `VersionHistoryView` 组件 | 自动快照 + DiffEditor 查看 + 一键恢复 |
 
 ---
 
 ## 2. 目录结构
 
 ```
-frontend/src/
-└── components/tools/
-    ├── ToolMainView.tsx    # 整体容器（顶部信息 + Tab）
-    ├── ToolCodeTab.tsx     # 代码编辑 Tab
-    ├── ToolParamsTab.tsx   # 参数展示 Tab
-    └── ToolTestTab.tsx     # 测试 Tab
+frontend/src/components/tools/
+├── ToolMainView.tsx    # 整体容器：Header(InlineEdit/InlineSelect/TagBar/版本badge)
+│                       #   + Tab 切换(code/params/test)
+│                       #   + VersionHistoryView(historyMode 切换)
+│                       #   + CodeTab(Monaco Editor + diff review + pending change)
+│                       #   + ParamsTab + TestTab
+│                       #   + InlineEdit / InlineSelect / TagBar (内部组件)
+└── ToolCard.tsx        # 工具列表卡片
 ```
+注：所有子组件（CodeTab、ParamsTab、TestTab、InlineEdit、InlineSelect、TagBar、VersionHistoryView、InlineDiff）均定义在 ToolMainView.tsx 内部，非独立文件。
 
 ---
 
@@ -232,7 +239,7 @@ export function ToolTestTab({ tool, readonly }: { tool: Tool; readonly: boolean 
 ## 5. 验收测试
 
 ```
-1. 在资产 Tab 点工具 → 右侧出现 ToolMainView，顶部信息正确
+1. 点击工具 → Tool Tab 或 Chat+Tool 右侧出现 ToolMainView，顶部信息正确
 2. 代码 Tab：语法高亮正确；点"编辑"→ 可修改；保存有语法检查
 3. 语法错误代码点保存 → 显示错误信息，不保存
 4. 参数 Tab：显示从代码签名解析的所有参数

@@ -66,7 +66,8 @@ function App() {
   const [nav, setNav] = useState<NavTab>('home')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const isElectron = !!window.electronAPI
-  const sidebarPad = isElectron && !isFullscreen ? TRAFFIC_LIGHT_HEIGHT : 0
+  // Non-fullscreen: 38px for macOS traffic lights. Fullscreen: 6px breathing room. Browser: 0.
+  const sidebarPad = isElectron ? (isFullscreen ? 6 : TRAFFIC_LIGHT_HEIGHT) : 0
 
   useEffect(() => {
     const unsub = window.electronAPI?.onFullscreenChange(setIsFullscreen)
@@ -96,8 +97,11 @@ function App() {
           </div>
         </aside>
         <div className="w-px bg-gray-200 flex-shrink-0" />
-        <main className="flex-1 min-w-0 h-full overflow-hidden bg-white">
-          <MainContent nav={nav} />
+        <main className="flex flex-col flex-1 min-w-0 h-full overflow-hidden bg-white">
+          {sidebarPad > 0 && <div style={{ height: sidebarPad, flexShrink: 0 }} />}
+          <div className="flex-1 overflow-hidden">
+            <MainContent nav={nav} />
+          </div>
         </main>
       </div>
     </TabProvider>

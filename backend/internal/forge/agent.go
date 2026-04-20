@@ -44,38 +44,48 @@ func DetectCodeInResponse(content string) *DetectResult {
 		return nil
 	}
 
-	parsed := ParseFunction(code)
-	if parsed.FuncName == "" {
-		return nil
+	// Try AST parser first — also returns metadata from @comments
+	astResult, astMeta, err := ParseFunctionAST(code)
+	if err != nil || astResult == nil || astResult.FuncName == "" {
+		// Fallback to regex
+		astResult = ParseFunction(code)
+		if astResult.FuncName == "" {
+			return nil
+		}
 	}
-
-	// Extract metadata from @-comments (same format as builtin tools)
-	meta := ParseMeta(code)
 
 	result := &DetectResult{
 		Code:         code,
-		FuncName:     parsed.FuncName,
-		Docstring:    parsed.Docstring,
-		Params:       parsed.Params,
-		Requirements: parsed.Requirements,
+		FuncName:     astResult.FuncName,
+		Docstring:    astResult.Docstring,
+		Params:       astResult.Params,
+		Requirements: astResult.Requirements,
 	}
 
-	if meta != nil {
-		result.DisplayName = meta.DisplayName
-		result.Description = meta.Description
-		result.Category = meta.Category
+	// Use AST metadata if available, fallback to regex-based ParseMeta
+	if astMeta != nil {
+		result.DisplayName = astMeta.DisplayName
+		result.Description = astMeta.Description
+		result.Category = astMeta.Category
+	} else {
+		meta := ParseMeta(code)
+		if meta != nil {
+			result.DisplayName = meta.DisplayName
+			result.Description = meta.Description
+			result.Category = meta.Category
+		}
 	}
 
 	// Fallback: use docstring/funcName if metadata is missing
 	if result.DisplayName == "" {
-		if parsed.Docstring != "" {
-			result.DisplayName = parsed.Docstring
+		if result.Docstring != "" {
+			result.DisplayName = result.Docstring
 		} else {
-			result.DisplayName = parsed.FuncName
+			result.DisplayName = result.FuncName
 		}
 	}
 	if result.Description == "" {
-		result.Description = parsed.Docstring
+		result.Description = result.Docstring
 	}
 	if result.Category == "" {
 		result.Category = "other"

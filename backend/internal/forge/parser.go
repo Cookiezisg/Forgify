@@ -8,7 +8,8 @@ import (
 // ParsedParam represents a function parameter extracted from Python code.
 type ParsedParam struct {
 	Name     string `json:"name"`
-	Type     string `json:"type"`
+	Type     string `json:"type"`               // Base type for logic: "list", "str", "int"
+	FullType string `json:"fullType,omitempty"`  // Full type for display: "list[int]", "Optional[str]"
 	Required bool   `json:"required"`
 	Default  string `json:"default,omitempty"`
 }
@@ -51,7 +52,14 @@ type ParseResult struct {
 }
 
 // ParseFunction extracts function metadata from Python source code.
+// Uses Python AST (accurate) with regex fallback.
 func ParseFunction(code string) *ParseResult {
+	// Try AST parser first (100% accurate)
+	if astResult, _, err := ParseFunctionAST(code); err == nil && astResult.FuncName != "" {
+		return astResult
+	}
+
+	// Fallback to regex parser
 	result := &ParseResult{}
 	lines := strings.Split(code, "\n")
 

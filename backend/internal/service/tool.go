@@ -13,7 +13,8 @@ import (
 
 type ToolParameter struct {
 	Name     string `json:"name"`
-	Type     string `json:"type"`
+	Type     string `json:"type"`                // Base type: "list", "str", "int"
+	FullType string `json:"fullType,omitempty"`   // Full type: "list[int]", "Optional[str]"
 	Required bool   `json:"required"`
 	Default  string `json:"default,omitempty"`
 	Doc      string `json:"doc,omitempty"`

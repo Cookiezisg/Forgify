@@ -75,6 +75,27 @@ export function TabProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  // Close tabs when conversation is archived/deleted
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const convId = (e as CustomEvent).detail as string
+      setTabs(prev => {
+        const filtered = prev.filter(t => t.conversationId !== convId)
+        if (filtered.length < prev.length && activeTabId) {
+          const still = filtered.find(t => t.id === activeTabId)
+          if (!still && filtered.length > 0) {
+            setActiveTabId(filtered[filtered.length - 1].id)
+          } else if (filtered.length === 0) {
+            setActiveTabId(null)
+          }
+        }
+        return filtered
+      })
+    }
+    window.addEventListener('conversation:archived', handler)
+    return () => window.removeEventListener('conversation:archived', handler)
+  }, [activeTabId])
+
   const openTab = useCallback((tab: Omit<TabItem, 'id'>) => {
     // Check if a tab with the same content already exists
     const existing = tabs.find(t => {

@@ -35,6 +35,13 @@ export function AssetsLeftPanel() {
 
   useEffect(() => { load() }, [load])
 
+  // Refresh when tools change (delete, restore, create)
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('tool:changed', handler)
+    return () => window.removeEventListener('tool:changed', handler)
+  }, [load])
+
   const handleNewTool = () => {
     window.dispatchEvent(new CustomEvent('nav:goTo', { detail: 'chat' }))
   }

@@ -205,9 +205,9 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
 
   useEffect(() => { setCode(tool.code); setEditing(false) }, [tool.id, tool.code])
 
-  // Listen for "AI is generating code" indicator
+  // Listen for "AI is generating code" indicator — only for this tool
   useEffect(() => {
-    const off = onEvent<{ conversationId: string; event: string; status?: string }>(
+    const offGen = onEvent<{ conversationId: string; event: string; status?: string }>(
       EventNames.ForgeCodeStreaming,
       (e) => {
         if (e.event === 'generating') {
@@ -216,7 +216,17 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
         }
       }
     )
-    return off
+    // Reset generating state when chat is done (no tool call happened = normal response)
+    const offDone = onEvent<{ conversationId: string }>(
+      EventNames.ChatDone,
+      () => { setGenerating(false) }
+    )
+    // Also reset when pending change arrives (tool call DID happen and completed)
+    const offUpdated = onEvent<{ toolId: string }>(
+      EventNames.ForgeCodeUpdated,
+      (e) => { if (e.toolId === tool.id) setGenerating(false) }
+    )
+    return () => { offGen(); offDone(); offUpdated() }
   }, [tool.id])
 
   // Poll for pending changes
@@ -268,19 +278,7 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
     } catch {}
   }
 
-  // ─── Generating indicator (AI is working on code via tool call) ───
-  if (generating) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 12 }}>
-        <div style={{
-          width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: '#3b82f6',
-          borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-        }} />
-        <p style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>{genStatus}</p>
-        <p style={{ fontSize: 12, color: '#9b9a97' }}>完成后将显示变更对比</p>
-      </div>
-    )
-  }
+  // Note: generating state is shown as a small banner, NOT blocking the entire view
 
   // ─── Diff review mode ───
   if (pending.hasPending && pending.currentCode != null && pending.pendingCode != null) {
@@ -329,6 +327,17 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
   // ─── Normal editor mode ───
   return (
     <div className="flex flex-col h-full" style={{ padding: '12px 0' }}>
+      {/* Generating banner — small, non-blocking */}
+      {generating && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 16px', background: '#eff6ff', borderBottom: '1px solid #dbeafe',
+          flexShrink: 0,
+        }}>
+          <div style={{ width: 12, height: 12, border: '2px solid #93c5fd', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <span style={{ fontSize: 12, color: '#1d4ed8' }}>{genStatus}</span>
+        </div>
+      )}
       {!tool.builtin && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, padding: '0 16px 8px' }}>
           {editing ? (

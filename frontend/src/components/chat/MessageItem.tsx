@@ -9,6 +9,7 @@ import { useT } from '@/lib/i18n'
 
 interface Props {
   message: ChatMessage
+  conversationId?: string
 }
 
 /** Extract a short display name from a model ID string. */
@@ -20,7 +21,7 @@ function formatModelName(id: string | undefined): string | undefined {
   return id
 }
 
-export function MessageItem({ message }: Props) {
+export function MessageItem({ message, conversationId }: Props) {
   const t = useT()
   const isUser = message.role === 'user'
   const isError = message.status === 'error'
@@ -191,7 +192,7 @@ export function MessageItem({ message }: Props) {
                         {String(children).replace(/\n$/, '')}
                       </SyntaxHighlighter>
                       {isPython && message.forgeToolId && message.status === 'done' && (
-                        <ForgeCodeBlock toolId={message.forgeToolId} />
+                        <ForgeCodeBlock toolId={message.forgeToolId} conversationId={conversationId} />
                       )}
                     </div>
                   ) : (

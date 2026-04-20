@@ -2,15 +2,17 @@ import { useState } from 'react'
 import { Play, Save } from 'lucide-react'
 import { TestParamsModal } from './TestParamsModal'
 import { SaveToolModal } from './SaveToolModal'
+import { api } from '@/lib/api'
 import { useT } from '@/lib/i18n'
 
 interface Props {
   toolId: string
+  conversationId?: string
   onTestResult?: (result: { passed: boolean; output?: any; error?: string; durationMs: number }) => void
   onToolSaved?: (tool: { id: string; displayName: string }) => void
 }
 
-export function ForgeCodeBlock({ toolId, onTestResult, onToolSaved }: Props) {
+export function ForgeCodeBlock({ toolId, conversationId, onTestResult, onToolSaved }: Props) {
   const t = useT()
   const [showTest, setShowTest] = useState(false)
   const [showSave, setShowSave] = useState(false)
@@ -87,8 +89,18 @@ export function ForgeCodeBlock({ toolId, onTestResult, onToolSaved }: Props) {
         <SaveToolModal
           toolId={toolId}
           onClose={() => setShowSave(false)}
-          onSaved={(tool) => {
+          onSaved={async (tool) => {
             setSaved(true)
+            // Bind conversation to tool if we have conversationId
+            if (conversationId) {
+              await api(`/api/conversations/${conversationId}/bind`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assetId: tool.id, assetType: 'tool' }),
+              }).catch(() => {})
+            }
+            window.dispatchEvent(new CustomEvent('tool:changed'))
+            window.dispatchEvent(new CustomEvent('conversation:changed'))
             onToolSaved?.(tool)
           }}
         />

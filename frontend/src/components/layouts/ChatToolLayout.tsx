@@ -180,7 +180,10 @@ export function ChatToolLayout({ conversationId, toolId, tabId }: Props) {
         </div>
         {/* Tool view */}
         <div style={{ flex: 1, overflow: 'hidden' }}>
-          <ToolMainView toolId={toolId} onDeleted={() => {}} />
+          <ToolMainView toolId={toolId} onDeleted={() => {
+            // Tool was deleted — ToolMainView will show "deleted" state via tool:changed listener
+            window.dispatchEvent(new CustomEvent('tool:changed'))
+          }} />
         </div>
       </div>
     </div>

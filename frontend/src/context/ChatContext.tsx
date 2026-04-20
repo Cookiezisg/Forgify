@@ -126,6 +126,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setConversations(prev => prev.filter(c => c.id !== id))
       if (activeId === id) setActiveId(null)
       if (showArchived) loadArchived()
+      // Tell TabContext to close any tab with this conversation
+      window.dispatchEvent(new CustomEvent('conversation:archived', { detail: id }))
     } catch {}
   }, [activeId, showArchived, loadArchived])
 
@@ -143,6 +145,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setConversations(prev => prev.filter(c => c.id !== id))
       setArchivedConversations(prev => prev.filter(c => c.id !== id))
       if (activeId === id) setActiveId(null)
+      window.dispatchEvent(new CustomEvent('conversation:archived', { detail: id }))
     } catch {}
   }, [activeId])
 

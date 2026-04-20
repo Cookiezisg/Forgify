@@ -8,9 +8,10 @@ import { useT } from '@/lib/i18n'
 interface Props {
   messages: ChatMessage[]
   isLoading?: boolean
+  conversationId?: string
 }
 
-export function MessageList({ messages, isLoading }: Props) {
+export function MessageList({ messages, isLoading, conversationId }: Props) {
   const t = useT()
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -64,7 +65,7 @@ export function MessageList({ messages, isLoading }: Props) {
       <div style={{ flex: 1 }} />
       <div className="flex flex-col py-4" style={{ gap: 4 }}>
         {messages.map((msg) => (
-          <MessageItem key={msg.id} message={msg} />
+          <MessageItem key={msg.id} message={msg} conversationId={conversationId} />
         ))}
         <div ref={bottomRef} />
       </div>

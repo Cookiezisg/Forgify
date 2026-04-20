@@ -66,6 +66,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/conversations/{id}/restore", s.restoreConversation)
 	s.mux.HandleFunc("PATCH /api/conversations/{id}/bind", s.bindConversation)
 	s.mux.HandleFunc("PATCH /api/conversations/{id}/unbind", s.unbindConversation)
+	s.mux.HandleFunc("POST /api/conversations/{id}/compact", s.fullCompact)
 	s.mux.HandleFunc("GET /api/conversations/archived", s.listArchivedConversations)
 	s.mux.HandleFunc("GET /api/conversations/search", s.searchConversations)
 	s.mux.HandleFunc("POST /api/conversations/batch-archive", s.batchArchiveConversations)

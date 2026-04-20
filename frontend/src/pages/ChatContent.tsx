@@ -74,16 +74,20 @@ export function ChatContent({ conversationId, hideBinding }: Props) {
       <div className="flex flex-col h-full">
         <CompactBanner conversationId={conversationId} />
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          <MessageList messages={messages} isLoading={isLoading} />
+          <div style={{ maxWidth: 768, margin: '0 auto', width: '100%' }}>
+            <MessageList messages={messages} isLoading={isLoading} />
+          </div>
         </div>
-        <ChatInput
-          ref={chatInputRef}
-          isStreaming={isStreaming}
-          onSend={sendMessage}
-          onStop={stopGeneration}
-          onCompact={handleCompact}
-          disabled={needsSetup}
-        />
+        <div style={{ maxWidth: 768, margin: '0 auto', width: '100%' }}>
+          <ChatInput
+            ref={chatInputRef}
+            isStreaming={isStreaming}
+            onSend={sendMessage}
+            onStop={stopGeneration}
+            onCompact={handleCompact}
+            disabled={needsSetup}
+          />
+        </div>
       </div>
     </DropZone>
   )

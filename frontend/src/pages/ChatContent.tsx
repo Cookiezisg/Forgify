@@ -74,11 +74,11 @@ export function ChatContent({ conversationId, hideBinding }: Props) {
       <div className="flex flex-col h-full">
         <CompactBanner conversationId={conversationId} />
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          <div style={{ maxWidth: 768, margin: '0 auto', width: '100%' }}>
+          <div style={{ maxWidth: 768, margin: '0 auto', width: '100%', height: '100%' }}>
             <MessageList messages={messages} isLoading={isLoading} />
           </div>
         </div>
-        <div style={{ maxWidth: 768, margin: '0 auto', width: '100%' }}>
+        <div style={{ maxWidth: 768, margin: '0 auto', width: '100%', padding: '0 16px' }}>
           <ChatInput
             ref={chatInputRef}
             isStreaming={isStreaming}

@@ -60,6 +60,8 @@ export function MessageList({ messages, isLoading }: Props) {
       className="flex flex-col h-full"
       style={{ overflowY: 'auto', position: 'relative' }}
     >
+      {/* Spacer pushes messages to bottom when there are few */}
+      <div style={{ flex: 1 }} />
       <div className="flex flex-col py-4" style={{ gap: 4 }}>
         {messages.map((msg) => (
           <MessageItem key={msg.id} message={msg} />

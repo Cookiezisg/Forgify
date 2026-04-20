@@ -236,8 +236,9 @@ function attachForgeToolId(messages: ChatMessage[], toolId: string): ChatMessage
 }
 
 function attachForgeCode(messages: ChatMessage[], code: string, funcName: string, displayName?: string, description?: string, category?: string): ChatMessage[] {
+  // Find last assistant message (any status — event may arrive before ChatDone)
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant' && messages[i].status === 'done') {
+    if (messages[i].role === 'assistant') {
       return messages.map((m, idx) =>
         idx === i ? { ...m, forgeCode: code, forgeFuncName: funcName, forgeDisplayName: displayName, forgeDescription: description, forgeCategory: category } : m
       )

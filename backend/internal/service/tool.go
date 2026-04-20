@@ -221,6 +221,59 @@ func (s *ToolService) ListTestHistory(toolID string) ([]*ToolTestRecord, error) 
 	return records, rows.Err()
 }
 
+// ─── Pending Changes (review-before-apply) ───
+
+func (s *ToolService) SetPendingChange(id, code, summary string) error {
+	_, err := storage.DB().Exec(`
+		UPDATE tools SET pending_code=?, pending_summary=?, updated_at=datetime('now')
+		WHERE id=?`, code, summary, id)
+	return err
+}
+
+func (s *ToolService) AcceptPendingChange(id string) error {
+	tool, err := s.Get(id)
+	if err != nil || tool == nil {
+		return fmt.Errorf("tool not found")
+	}
+
+	var pendingCode, pendingSummary sql.NullString
+	storage.DB().QueryRow(`SELECT pending_code, pending_summary FROM tools WHERE id=?`, id).Scan(&pendingCode, &pendingSummary)
+	if !pendingCode.Valid || pendingCode.String == "" {
+		return fmt.Errorf("no pending change")
+	}
+
+	// Save current code as version before overwriting
+	if tool.Code != "" {
+		summary := pendingSummary.String
+		if summary == "" {
+			summary = "accepted change"
+		}
+		s.SaveVersion(id, tool.Code, summary)
+	}
+
+	// Apply pending code
+	_, err = storage.DB().Exec(`
+		UPDATE tools SET code=pending_code, pending_code=NULL, pending_summary=NULL, updated_at=datetime('now')
+		WHERE id=?`, id)
+	return err
+}
+
+func (s *ToolService) RejectPendingChange(id string) error {
+	_, err := storage.DB().Exec(`
+		UPDATE tools SET pending_code=NULL, pending_summary=NULL, updated_at=datetime('now')
+		WHERE id=?`, id)
+	return err
+}
+
+func (s *ToolService) GetPendingChange(id string) (code string, summary string, hasPending bool) {
+	var pc, ps sql.NullString
+	storage.DB().QueryRow(`SELECT pending_code, pending_summary FROM tools WHERE id=?`, id).Scan(&pc, &ps)
+	if pc.Valid && pc.String != "" {
+		return pc.String, ps.String, true
+	}
+	return "", "", false
+}
+
 // ─── Metadata editing ───
 
 func (s *ToolService) UpdateMeta(id string, displayName, description, category *string) error {

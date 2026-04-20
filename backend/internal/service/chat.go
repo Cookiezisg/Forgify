@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	einomodel "github.com/cloudwego/eino/components/model"
+	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"github.com/sunweilin/forgify/internal/attachment"
@@ -40,7 +41,6 @@ func NewChatService(gateway *model.ModelGateway, bridge *events.Bridge, convSvc 
 	}
 }
 
-// FullCompact exposes the compressor's full compact operation to the server layer.
 func (s *ChatService) FullCompact(ctx context.Context, conversationID string) error {
 	return s.compressor.FullCompact(ctx, conversationID)
 }
@@ -49,17 +49,14 @@ type chatTokenPayload struct {
 	ConversationID string `json:"conversationId"`
 	Token          string `json:"token"`
 }
-
 type chatDonePayload struct {
 	ConversationID string `json:"conversationId"`
 	ModelID        string `json:"modelId,omitempty"`
 }
-
 type chatErrorPayload struct {
 	ConversationID string `json:"conversationId"`
 	Error          string `json:"error"`
 }
-
 type notificationPayload struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
@@ -67,7 +64,6 @@ type notificationPayload struct {
 }
 
 func (s *ChatService) SendMessageWithAttachments(ctx context.Context, conversationID, userMessage string, files []*attachment.FileInfo) error {
-	// Build attachment summary for persistence (file names + sizes)
 	var attachSummary string
 	if len(files) > 0 {
 		var names []string
@@ -91,7 +87,6 @@ func (s *ChatService) SendMessageWithAttachments(ctx context.Context, conversati
 		return fmt.Errorf("load history: %w", err)
 	}
 
-	// Inject file content into the message history for the LLM
 	if len(files) > 0 {
 		history, err = attachment.InjectIntoMessages(history, files)
 		if err != nil {
@@ -99,7 +94,6 @@ func (s *ChatService) SendMessageWithAttachments(ctx context.Context, conversati
 		}
 	}
 
-	// Apply context compression if needed (model limit defaults to 128k tokens)
 	const defaultModelLimit = 128000
 	history, compressLevel, _ := s.compressor.MaybeCompress(ctx, conversationID, history, defaultModelLimit)
 	if compressLevel == ctxcompress.LevelAuto {
@@ -128,12 +122,16 @@ func (s *ChatService) SendMessageWithAttachments(ctx context.Context, conversati
 		}
 	}
 
+	// Bind forge tools based on conversation state
+	boundLLM := s.bindForgeTools(ctx, conversationID, llm)
+
 	streamCtx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	s.cancels[conversationID] = cancel
 	s.mu.Unlock()
 
-	go s.doStream(streamCtx, cancel, conversationID, llm, history, modelID, userMessage)
+	// Pass both: boundLLM (with tools, for Generate) and llm (without tools, for Stream)
+	go s.doStream(streamCtx, cancel, conversationID, boundLLM, llm, history, modelID, userMessage)
 	return nil
 }
 
@@ -159,11 +157,90 @@ func (s *ChatService) StopGeneration(conversationID string) {
 	}
 }
 
+// bindForgeTools attaches create_tool or update_tool_code to the LLM.
+func (s *ChatService) bindForgeTools(ctx context.Context, conversationID string, llm einomodel.BaseChatModel) einomodel.BaseChatModel {
+	toolLLM, ok := llm.(einomodel.ToolCallingChatModel)
+	if !ok {
+		return llm
+	}
+
+	conv, _ := s.convSvc.Get(conversationID)
+	isBound := conv != nil && conv.AssetID != nil && conv.AssetType != nil && *conv.AssetType == "tool"
+
+	var forgeTools []einotool.InvokableTool
+	if isBound {
+		forgeTools = append(forgeTools, forge.NewUpdateToolCodeTool(
+			func(ctx context.Context, code, explanation string) error {
+				boundToolID := *conv.AssetID
+				existingTool, _ := s.toolSvc.Get(boundToolID)
+				if existingTool == nil {
+					return fmt.Errorf("tool not found")
+				}
+				summary := explanation
+				s.toolSvc.SetPendingChange(boundToolID, code, summary)
+				s.bridge.Emit(events.ForgeCodeUpdated, map[string]any{
+					"conversationId": conversationID, "toolId": boundToolID, "summary": summary,
+				})
+				return nil
+			},
+		))
+	} else {
+		forgeTools = append(forgeTools, forge.NewCreateToolTool(
+			func(ctx context.Context, code, explanation string) error {
+				parsed := forge.ParseFunction(code)
+				if parsed.FuncName == "" {
+					return fmt.Errorf("invalid code: no function found")
+				}
+				params := make([]ToolParameter, len(parsed.Params))
+				for i, p := range parsed.Params {
+					params[i] = ToolParameter{Name: p.Name, Type: p.Type, Required: p.Required, Default: p.Default}
+				}
+				displayName := parsed.FuncName
+				if parsed.Docstring != "" {
+					displayName = parsed.Docstring
+				}
+				tool := &Tool{
+					Name: parsed.FuncName, DisplayName: displayName, Description: parsed.Docstring,
+					Code: code, Requirements: parsed.Requirements, Parameters: params,
+					Category: "other", Status: "draft",
+				}
+				existing, _ := s.toolSvc.GetByName(parsed.FuncName)
+				if existing != nil {
+					tool.ID = existing.ID
+				}
+				if err := s.toolSvc.Save(tool); err != nil {
+					return err
+				}
+				s.convSvc.Bind(conversationID, tool.ID, "tool")
+				s.bridge.Emit(events.ForgeCodeDetected, map[string]any{
+					"conversationId": conversationID, "toolId": tool.ID, "funcName": parsed.FuncName,
+				})
+				return nil
+			},
+		))
+	}
+
+	var toolInfos []*schema.ToolInfo
+	for _, ft := range forgeTools {
+		info, err := ft.Info(ctx)
+		if err != nil {
+			continue
+		}
+		toolInfos = append(toolInfos, info)
+	}
+	withTools, err := toolLLM.WithTools(toolInfos)
+	if err != nil {
+		return llm
+	}
+	return withTools
+}
+
 func (s *ChatService) doStream(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	conversationID string,
-	llm einomodel.BaseChatModel,
+	toolLLM einomodel.BaseChatModel, // LLM with forge tools bound (for Generate phase)
+	plainLLM einomodel.BaseChatModel, // LLM without tools (for Stream phase)
 	history []*schema.Message,
 	modelID string,
 	userMessage string,
@@ -175,7 +252,44 @@ func (s *ChatService) doStream(
 		s.mu.Unlock()
 	}()
 
-	sr, err := llm.Stream(ctx, history)
+	// Phase 1: Generate (non-streaming) to handle tool calls.
+	// Emit a "generating" event so frontend shows progress indicator.
+	currentHistory := history
+	for iteration := 0; iteration < 3; iteration++ {
+		// Tell frontend that AI is working (tool call phase)
+		s.bridge.Emit(events.ForgeCodeStreaming, map[string]any{
+			"conversationId": conversationID,
+			"event":          "generating",
+		})
+
+		resp, err := toolLLM.Generate(ctx, currentHistory)
+		if err != nil {
+			s.bridge.Emit(events.ChatError, chatErrorPayload{
+				ConversationID: conversationID,
+				Error:          classifyError(err),
+			})
+			return
+		}
+
+		if len(resp.ToolCalls) > 0 {
+			assistantMsg := &schema.Message{
+				Role: schema.Assistant, Content: resp.Content, ToolCalls: resp.ToolCalls,
+			}
+			currentHistory = append(currentHistory, assistantMsg)
+
+			for _, tc := range resp.ToolCalls {
+				result := s.executeForgeToolCall(ctx, conversationID, tc)
+				currentHistory = append(currentHistory, schema.ToolMessage(result, tc.ID))
+			}
+			continue
+		}
+
+		// No tool calls — break to streaming phase
+		break
+	}
+
+	// Phase 2: Stream the final text response using plain LLM (no tools).
+	sr, err := plainLLM.Stream(ctx, currentHistory)
 	if err != nil {
 		s.bridge.Emit(events.ChatError, chatErrorPayload{
 			ConversationID: conversationID,
@@ -190,44 +304,101 @@ func (s *ChatService) doStream(
 		chunk, err := sr.Recv()
 		if errors.Is(err, io.EOF) {
 			content := buf.String()
-			assistantMsgID := uuid.NewString()
-			storage.DB().Exec(
-				`INSERT INTO messages (id, conversation_id, role, content, content_type, model_id) VALUES (?, ?, 'assistant', ?, 'text', ?)`,
-				assistantMsgID, conversationID, content, modelID,
-			)
+			if content != "" {
+				storage.DB().Exec(
+					`INSERT INTO messages (id, conversation_id, role, content, content_type, model_id) VALUES (?, ?, 'assistant', ?, 'text', ?)`,
+					uuid.NewString(), conversationID, content, modelID,
+				)
+			}
 			s.convSvc.TouchUpdatedAt(conversationID)
-			s.bridge.Emit(events.ChatDone, chatDonePayload{
-				ConversationID: conversationID,
-				ModelID:        modelID,
-			})
-
-			// Trigger auto-title for first exchange
+			s.bridge.Emit(events.ChatDone, chatDonePayload{ConversationID: conversationID, ModelID: modelID})
 			s.convSvc.AutoTitle(ctx, conversationID, userMessage, content)
-
-			// Detect forge code blocks in AI response
-			s.detectForgeCode(conversationID, content)
 			return
 		}
 		if err != nil {
 			s.bridge.Emit(events.ChatError, chatErrorPayload{
-				ConversationID: conversationID,
-				Error:          classifyError(err),
+				ConversationID: conversationID, Error: classifyError(err),
 			})
 			return
 		}
 		if chunk != nil && chunk.Content != "" {
 			buf.WriteString(chunk.Content)
 			s.bridge.Emit(events.ChatToken, chatTokenPayload{
-				ConversationID: conversationID,
-				Token:          chunk.Content,
+				ConversationID: conversationID, Token: chunk.Content,
 			})
 		}
 	}
 }
 
+// executeForgeToolCall executes a tool call and returns the result.
+func (s *ChatService) executeForgeToolCall(ctx context.Context, conversationID string, tc schema.ToolCall) string {
+	conv, _ := s.convSvc.Get(conversationID)
+	isBound := conv != nil && conv.AssetID != nil && conv.AssetType != nil && *conv.AssetType == "tool"
+
+	switch tc.Function.Name {
+	case "update_tool_code":
+		if !isBound {
+			return "当前对话未绑定工具"
+		}
+		tool := forge.NewUpdateToolCodeTool(func(ctx context.Context, code, explanation string) error {
+			boundToolID := *conv.AssetID
+			existingTool, _ := s.toolSvc.Get(boundToolID)
+			if existingTool == nil {
+				return fmt.Errorf("tool not found")
+			}
+			s.toolSvc.SetPendingChange(boundToolID, code, explanation)
+			s.bridge.Emit(events.ForgeCodeUpdated, map[string]any{
+				"conversationId": conversationID, "toolId": boundToolID, "summary": explanation,
+			})
+			return nil
+		})
+		result, _ := tool.InvokableRun(ctx, tc.Function.Arguments)
+		return result
+
+	case "create_tool":
+		if isBound {
+			return "当前对话已绑定工具，如需创建新工具请开新对话"
+		}
+		tool := forge.NewCreateToolTool(func(ctx context.Context, code, explanation string) error {
+			parsed := forge.ParseFunction(code)
+			if parsed.FuncName == "" {
+				return fmt.Errorf("invalid code")
+			}
+			params := make([]ToolParameter, len(parsed.Params))
+			for i, p := range parsed.Params {
+				params[i] = ToolParameter{Name: p.Name, Type: p.Type, Required: p.Required, Default: p.Default}
+			}
+			displayName := parsed.FuncName
+			if parsed.Docstring != "" {
+				displayName = parsed.Docstring
+			}
+			t := &Tool{
+				Name: parsed.FuncName, DisplayName: displayName, Description: parsed.Docstring,
+				Code: code, Requirements: parsed.Requirements, Parameters: params,
+				Category: "other", Status: "draft",
+			}
+			existing, _ := s.toolSvc.GetByName(parsed.FuncName)
+			if existing != nil {
+				t.ID = existing.ID
+			}
+			if err := s.toolSvc.Save(t); err != nil {
+				return err
+			}
+			s.convSvc.Bind(conversationID, t.ID, "tool")
+			s.bridge.Emit(events.ForgeCodeDetected, map[string]any{
+				"conversationId": conversationID, "toolId": t.ID, "funcName": parsed.FuncName,
+			})
+			return nil
+		})
+		result, _ := tool.InvokableRun(ctx, tc.Function.Arguments)
+		return result
+
+	default:
+		return fmt.Sprintf("unknown tool: %s", tc.Function.Name)
+	}
+}
+
 func (s *ChatService) loadHistory(conversationID string) ([]*schema.Message, error) {
-	// Build tool summary BEFORE opening DB rows to avoid single-connection deadlock.
-	// SQLite with MaxOpenConns(1) means we can't have two queries open simultaneously.
 	toolSummary := s.buildToolSummary()
 
 	rows, err := storage.DB().Query(`
@@ -238,7 +409,6 @@ func (s *ChatService) loadHistory(conversationID string) ([]*schema.Message, err
 	}
 	defer rows.Close()
 
-	// Inject system prompts
 	msgs := []*schema.Message{
 		schema.SystemMessage(forge.ForgeSystemPrompt),
 	}
@@ -261,70 +431,6 @@ func (s *ChatService) loadHistory(conversationID string) ([]*schema.Message, err
 		}
 	}
 	return msgs, rows.Err()
-}
-
-// detectForgeCode checks if an AI response contains a Python code block,
-// saves it as a draft tool, and emits a forge event.
-func (s *ChatService) detectForgeCode(conversationID, content string) {
-	detected := forge.DetectCodeInResponse(content)
-	if detected == nil {
-		return
-	}
-
-	// Convert forge params to service params
-	params := make([]ToolParameter, len(detected.Params))
-	for i, p := range detected.Params {
-		params[i] = ToolParameter{
-			Name:     p.Name,
-			Type:     p.Type,
-			Required: p.Required,
-			Default:  p.Default,
-		}
-	}
-
-	displayName := detected.FuncName
-	if detected.Docstring != "" {
-		displayName = detected.Docstring
-	}
-
-	tool := &Tool{
-		Name:         detected.FuncName,
-		DisplayName:  displayName,
-		Description:  detected.Docstring,
-		Code:         detected.Code,
-		Requirements: detected.Requirements,
-		Parameters:   params,
-		Category:     "other",
-		Status:       "draft",
-	}
-
-	// Update if tool with same name exists
-	existing, _ := s.toolSvc.GetByName(detected.FuncName)
-	if existing != nil {
-		tool.ID = existing.ID
-	}
-
-	if err := s.toolSvc.Save(tool); err != nil {
-		return
-	}
-
-	// Auto-bind conversation to the created tool (PRD 2.1)
-	s.convSvc.Bind(conversationID, tool.ID, "tool")
-
-	// Persist forgeToolId in the last assistant message's metadata so it survives reload
-	storage.DB().Exec(`
-		UPDATE messages SET metadata = json_object('forgeToolId', ?)
-		WHERE id = (
-			SELECT id FROM messages
-			WHERE conversation_id = ? AND role = 'assistant'
-			ORDER BY created_at DESC LIMIT 1
-		)`, tool.ID, conversationID)
-
-	s.bridge.Emit(events.ForgeCodeDetected, map[string]any{
-		"conversationId": conversationID,
-		"toolId":         tool.ID,
-		"funcName":       detected.FuncName,
-	})
 }
 
 func (s *ChatService) buildToolSummary() string {

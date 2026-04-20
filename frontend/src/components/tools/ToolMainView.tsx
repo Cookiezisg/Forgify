@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Loader } from 'lucide-react'
 import Editor from '@monaco-editor/react'
 import { api } from '@/lib/api'
+import { onEvent, EventNames } from '@/lib/events'
 import { useT } from '@/lib/i18n'
 
 interface Tool {
@@ -71,37 +72,61 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* Header — inline editable */}
       <div style={{
-        padding: '14px 20px', borderBottom: '1px solid #e5e7eb',
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0,
+        padding: '12px 20px 8px', borderBottom: '1px solid #e5e7eb', flexShrink: 0,
       }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>📦 {tool.displayName}</span>
-            {tool.builtin && (
-              <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#f3f4f6', color: '#9b9a97' }}>
-                {t('tools.builtin')}
-              </span>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14 }}>📦</span>
+              {/* Inline editable name */}
+              <InlineEdit
+                value={tool.displayName}
+                readonly={tool.builtin}
+                style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}
+                onSave={(v) => {
+                  api(`/api/tools/${tool.id}/meta`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ displayName: v }),
+                  }).then(load)
+                }}
+              />
+              {tool.builtin && (
+                <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#f3f4f6', color: '#9b9a97' }}>
+                  {t('tools.builtin')}
+                </span>
+              )}
+            </div>
+            {/* Inline editable description */}
+            <InlineEdit
+              value={tool.description || '添加描述...'}
+              readonly={tool.builtin}
+              style={{ fontSize: 12, color: '#9b9a97', marginTop: 2 }}
+              onSave={(v) => {
+                api(`/api/tools/${tool.id}/meta`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ description: v }),
+                }).then(load)
+              }}
+            />
+            {/* Tag bar */}
+            {!tool.builtin && <TagBar toolId={tool.id} />}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            {!tool.builtin && (
+              <>
+                <button onClick={handleExport} style={{
+                  padding: '5px 10px', fontSize: 12, borderRadius: 5,
+                  border: '1px solid #e5e7eb', background: 'white', color: '#374151', cursor: 'pointer',
+                }}>{t('tools.export')}</button>
+                <button onClick={handleDelete} style={{
+                  padding: '5px 10px', fontSize: 12, borderRadius: 5,
+                  border: '1px solid #fca5a5', background: 'white', color: '#dc2626', cursor: 'pointer',
+                }}>{t('tools.delete')}</button>
+              </>
             )}
           </div>
-          <p style={{ fontSize: 12, color: '#9b9a97', marginTop: 3 }}>
-            {tool.description} · {tool.category}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {!tool.builtin && (
-            <>
-              <button onClick={handleExport} style={{
-                padding: '5px 10px', fontSize: 12, borderRadius: 5,
-                border: '1px solid #e5e7eb', background: 'white', color: '#374151', cursor: 'pointer',
-              }}>{t('tools.export')}</button>
-              <button onClick={handleDelete} style={{
-                padding: '5px 10px', fontSize: 12, borderRadius: 5,
-                border: '1px solid #fca5a5', background: 'white', color: '#dc2626', cursor: 'pointer',
-              }}>{t('tools.delete')}</button>
-            </>
-          )}
         </div>
       </div>
 
@@ -131,15 +156,52 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
   )
 }
 
-// ─── Code Tab ───
+// ─── Code Tab (with diff review mode) ───
+
+interface PendingChange {
+  hasPending: boolean
+  currentCode?: string
+  pendingCode?: string
+  summary?: string
+}
 
 function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [code, setCode] = useState(tool.code)
   const [error, setError] = useState('')
+  const [pending, setPending] = useState<PendingChange>({ hasPending: false })
+  const [accepting, setAccepting] = useState(false)
+  const [generating, setGenerating] = useState(false)
 
   useEffect(() => { setCode(tool.code); setEditing(false) }, [tool.id, tool.code])
+
+  // Listen for "AI is generating code" indicator
+  useEffect(() => {
+    const off = onEvent<{ conversationId: string; event: string }>(
+      EventNames.ForgeCodeStreaming,
+      (e) => {
+        if (e.event === 'generating') setGenerating(true)
+      }
+    )
+    return off
+  }, [tool.id])
+
+  // Poll for pending changes
+  useEffect(() => {
+    const check = () => {
+      api<PendingChange>(`/api/tools/${tool.id}/pending`).then((p) => {
+        setPending(p)
+        if (p.hasPending) setGenerating(false)
+      }).catch(() => {})
+    }
+    check()
+    // Also listen for forge.code_updated event
+    const off = onEvent<{ toolId: string }>(EventNames.ForgeCodeUpdated, (e) => {
+      if (e.toolId === tool.id) check()
+    })
+    return off
+  }, [tool.id])
 
   const save = async () => {
     try {
@@ -147,20 +209,92 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          displayName: tool.displayName,
-          description: tool.description,
-          code,
-          category: tool.category,
+          displayName: tool.displayName, description: tool.description,
+          code, category: tool.category,
         }),
       })
       setEditing(false)
       setError('')
       onSave()
-    } catch (e: any) {
-      setError(e.message)
-    }
+    } catch (e: any) { setError(e.message) }
   }
 
+  const acceptChange = async () => {
+    setAccepting(true)
+    try {
+      await api(`/api/tools/${tool.id}/accept`, { method: 'POST' })
+      setPending({ hasPending: false })
+      onSave() // reload tool data
+    } catch (e: any) { setError(e.message) }
+    finally { setAccepting(false) }
+  }
+
+  const rejectChange = async () => {
+    try {
+      await api(`/api/tools/${tool.id}/reject`, { method: 'POST' })
+      setPending({ hasPending: false })
+    } catch {}
+  }
+
+  // ─── Generating indicator (AI is working on code via tool call) ───
+  if (generating) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 12 }}>
+        <div style={{
+          width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: '#3b82f6',
+          borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+        }} />
+        <p style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>AI 正在编写代码...</p>
+        <p style={{ fontSize: 12, color: '#9b9a97' }}>完成后将显示变更对比</p>
+      </div>
+    )
+  }
+
+  // ─── Diff review mode ───
+  if (pending.hasPending && pending.currentCode != null && pending.pendingCode != null) {
+    return (
+      <div className="flex flex-col h-full">
+        {/* Diff header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 16px', borderBottom: '1px solid #e5e7eb', flexShrink: 0,
+          background: '#fffbeb',
+        }}>
+          <div>
+            <span style={{ fontSize: 13, fontWeight: 500, color: '#92400e' }}>
+              AI 提议修改
+            </span>
+            {pending.summary && (
+              <span style={{ fontSize: 12, color: '#b45309', marginLeft: 8 }}>
+                ({pending.summary})
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={rejectChange} style={{
+              padding: '5px 12px', fontSize: 12, borderRadius: 5,
+              border: '1px solid #e5e7eb', background: 'white', color: '#374151', cursor: 'pointer',
+            }}>
+              拒绝
+            </button>
+            <button onClick={acceptChange} disabled={accepting} style={{
+              padding: '5px 12px', fontSize: 12, borderRadius: 5,
+              border: 'none', background: '#16a34a', color: 'white', cursor: 'pointer',
+              opacity: accepting ? 0.7 : 1,
+            }}>
+              {accepting ? '应用中...' : '✓ 接受修改'}
+            </button>
+          </div>
+        </div>
+        {/* Inline diff view */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '0' }}>
+          <InlineDiff oldCode={pending.currentCode} newCode={pending.pendingCode} />
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Normal editor mode ───
   return (
     <div className="flex flex-col h-full" style={{ padding: '12px 0' }}>
       {!tool.builtin && (
@@ -197,6 +331,71 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
       </div>
     </div>
   )
+}
+
+// ─── Inline Diff Component (red/green line-level) ───
+
+function InlineDiff({ oldCode, newCode }: { oldCode: string; newCode: string }) {
+  const oldLines = oldCode.split('\n')
+  const newLines = newCode.split('\n')
+
+  // Simple LCS-based diff
+  const diff = computeDiff(oldLines, newLines)
+
+  return (
+    <div style={{ fontFamily: '"JetBrains Mono", "Fira Code", monospace', fontSize: 13, lineHeight: '1.6' }}>
+      {diff.map((line, i) => (
+        <div key={i} style={{
+          padding: '0 16px',
+          background: line.type === 'add' ? '#dcfce7' : line.type === 'remove' ? '#fee2e2' : 'transparent',
+          color: line.type === 'add' ? '#166534' : line.type === 'remove' ? '#991b1b' : '#374151',
+          borderLeft: line.type === 'add' ? '3px solid #16a34a' : line.type === 'remove' ? '3px solid #dc2626' : '3px solid transparent',
+          whiteSpace: 'pre',
+          minHeight: '1.6em',
+        }}>
+          <span style={{ display: 'inline-block', width: 20, color: '#9b9a97', userSelect: 'none', textAlign: 'right', marginRight: 12 }}>
+            {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
+          </span>
+          {line.content}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+type DiffLine = { type: 'same' | 'add' | 'remove'; content: string }
+
+function computeDiff(oldLines: string[], newLines: string[]): DiffLine[] {
+  // Simple diff: find matching lines, mark others as add/remove
+  const result: DiffLine[] = []
+  let oi = 0, ni = 0
+
+  while (oi < oldLines.length || ni < newLines.length) {
+    if (oi < oldLines.length && ni < newLines.length && oldLines[oi] === newLines[ni]) {
+      result.push({ type: 'same', content: oldLines[oi] })
+      oi++; ni++
+    } else {
+      // Look ahead to find next match
+      let foundOld = -1, foundNew = -1
+      for (let k = 1; k <= 5; k++) {
+        if (ni + k < newLines.length && oi < oldLines.length && oldLines[oi] === newLines[ni + k]) { foundNew = ni + k; break }
+        if (oi + k < oldLines.length && ni < newLines.length && newLines[ni] === oldLines[oi + k]) { foundOld = oi + k; break }
+      }
+
+      if (foundOld >= 0) {
+        // Old lines were removed
+        while (oi < foundOld) { result.push({ type: 'remove', content: oldLines[oi++] }) }
+      } else if (foundNew >= 0) {
+        // New lines were added
+        while (ni < foundNew) { result.push({ type: 'add', content: newLines[ni++] }) }
+      } else {
+        // No match nearby — treat as remove old + add new
+        if (oi < oldLines.length) { result.push({ type: 'remove', content: oldLines[oi++] }) }
+        if (ni < newLines.length) { result.push({ type: 'add', content: newLines[ni++] }) }
+      }
+    }
+  }
+  return result
 }
 
 // ─── Params Tab ───
@@ -348,6 +547,133 @@ function TestTab({ tool }: { tool: Tool }) {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── InlineEdit (Notion-style click-to-edit) ───
+
+function InlineEdit({
+  value, readonly, style, onSave,
+}: {
+  value: string; readonly?: boolean; style?: React.CSSProperties; onSave: (v: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(value)
+
+  useEffect(() => { setText(value) }, [value])
+
+  if (readonly || !editing) {
+    return (
+      <span
+        onClick={() => !readonly && setEditing(true)}
+        style={{
+          ...style,
+          cursor: readonly ? 'default' : 'pointer',
+          borderBottom: readonly ? 'none' : '1px dashed transparent',
+          transition: 'border-color 100ms',
+        }}
+        onMouseEnter={(e) => { if (!readonly) (e.currentTarget.style.borderBottomColor = '#d1d5db') }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderBottomColor = 'transparent' }}
+      >
+        {value}
+      </span>
+    )
+  }
+
+  return (
+    <input
+      autoFocus
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        setEditing(false)
+        if (text.trim() && text !== value) onSave(text.trim())
+        else setText(value)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.currentTarget.blur() }
+        if (e.key === 'Escape') { setText(value); setEditing(false) }
+      }}
+      style={{
+        ...style,
+        border: 'none', borderBottom: '1px solid #2383e2',
+        outline: 'none', background: 'transparent',
+        padding: 0, margin: 0, fontFamily: 'inherit',
+        width: '100%',
+      }}
+    />
+  )
+}
+
+// ─── TagBar ───
+
+function TagBar({ toolId }: { toolId: string }) {
+  const [tags, setTags] = useState<string[]>([])
+  const [adding, setAdding] = useState(false)
+  const [newTag, setNewTag] = useState('')
+
+  useEffect(() => {
+    api<string[]>(`/api/tools/${toolId}/tags`).then(setTags).catch(() => {})
+  }, [toolId])
+
+  const addTag = async () => {
+    const tag = newTag.trim()
+    if (!tag) return
+    await api(`/api/tools/${toolId}/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag }),
+    }).catch(() => {})
+    setTags(prev => [...prev, tag])
+    setNewTag('')
+    setAdding(false)
+  }
+
+  const removeTag = async (tag: string) => {
+    await api(`/api/tools/${toolId}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }).catch(() => {})
+    setTags(prev => prev.filter(t => t !== tag))
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+      {tags.map(tag => (
+        <span key={tag} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          padding: '1px 8px', borderRadius: 10, fontSize: 11,
+          background: '#f3f4f6', color: '#374151',
+        }}>
+          {tag}
+          <button onClick={() => removeTag(tag)} style={{
+            border: 'none', background: 'none', cursor: 'pointer',
+            color: '#9b9a97', padding: 0, fontSize: 10, lineHeight: 1,
+          }}>×</button>
+        </span>
+      ))}
+      {adding ? (
+        <input
+          autoFocus
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          onBlur={() => { if (newTag.trim()) addTag(); else setAdding(false) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') addTag()
+            if (e.key === 'Escape') { setNewTag(''); setAdding(false) }
+          }}
+          placeholder="标签名"
+          style={{
+            width: 60, padding: '1px 6px', borderRadius: 10, fontSize: 11,
+            border: '1px solid #d1d5db', outline: 'none',
+          }}
+        />
+      ) : (
+        <button onClick={() => setAdding(true)} style={{
+          padding: '1px 8px', borderRadius: 10, fontSize: 11,
+          border: '1px dashed #d1d5db', background: 'transparent',
+          color: '#9b9a97', cursor: 'pointer',
+        }}>
+          + 标签
+        </button>
       )}
     </div>
   )

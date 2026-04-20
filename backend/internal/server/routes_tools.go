@@ -157,6 +157,46 @@ func (s *Server) listToolTestHistory(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, history)
 }
 
+func (s *Server) getToolPendingChange(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	code, summary, hasPending := s.toolSvc.GetPendingChange(id)
+	if !hasPending {
+		jsonOK(w, map[string]any{"hasPending": false})
+		return
+	}
+	// Also get current code for diff
+	tool, _ := s.toolSvc.Get(id)
+	currentCode := ""
+	if tool != nil {
+		currentCode = tool.Code
+	}
+	jsonOK(w, map[string]any{
+		"hasPending":  true,
+		"currentCode": currentCode,
+		"pendingCode": code,
+		"summary":     summary,
+	})
+}
+
+func (s *Server) acceptPendingChange(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.AcceptPendingChange(id); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	tool, _ := s.toolSvc.Get(id)
+	jsonOK(w, tool)
+}
+
+func (s *Server) rejectPendingChange(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.RejectPendingChange(id); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) updateToolMeta(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {

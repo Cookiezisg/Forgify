@@ -23,6 +23,11 @@ interface TabContextValue {
   setActiveTab: (id: string) => void
   updateTab: (id: string, patch: Partial<TabItem>) => void
   findTab: (predicate: (t: TabItem) => boolean) => TabItem | undefined
+  reorderTab: (fromIndex: number, toIndex: number) => void
+  closeOtherTabs: (id: string) => void
+  closeTabsToRight: (id: string) => void
+  closeAllTabs: () => void
+  togglePin: (id: string) => void
 }
 
 const TabContext = createContext<TabContextValue | null>(null)
@@ -149,8 +154,56 @@ export function TabProvider({ children }: { children: ReactNode }) {
     return tabs.find(predicate)
   }, [tabs])
 
+  const reorderTab = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return
+    setTabs(prev => {
+      const next = [...prev]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next
+    })
+  }, [])
+
+  const closeOtherTabs = useCallback((id: string) => {
+    setTabs(prev => {
+      const kept = prev.filter(t => t.id === id || t.pinned)
+      if (activeTabId && !kept.find(t => t.id === activeTabId)) {
+        setActiveTabId(id)
+      }
+      return kept
+    })
+  }, [activeTabId])
+
+  const closeTabsToRight = useCallback((id: string) => {
+    setTabs(prev => {
+      const idx = prev.findIndex(t => t.id === id)
+      if (idx === -1) return prev
+      const kept = prev.filter((t, i) => i <= idx || t.pinned)
+      if (activeTabId && !kept.find(t => t.id === activeTabId)) {
+        setActiveTabId(id)
+      }
+      return kept
+    })
+  }, [activeTabId])
+
+  const closeAllTabs = useCallback(() => {
+    setTabs(prev => {
+      const pinned = prev.filter(t => t.pinned)
+      setActiveTabId(pinned.length > 0 ? pinned[0].id : null)
+      return pinned
+    })
+  }, [])
+
+  const togglePin = useCallback((id: string) => {
+    setTabs(prev => {
+      const idx = prev.findIndex(t => t.id === id)
+      if (idx === -1) return prev
+      return prev.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t)
+    })
+  }, [])
+
   return (
-    <TabContext.Provider value={{ tabs, activeTabId, openTab, closeTab, setActiveTab, updateTab, findTab }}>
+    <TabContext.Provider value={{ tabs, activeTabId, openTab, closeTab, setActiveTab, updateTab, findTab, reorderTab, closeOtherTabs, closeTabsToRight, closeAllTabs, togglePin }}>
       {children}
     </TabContext.Provider>
   )

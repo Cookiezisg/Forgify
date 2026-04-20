@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sunweilin/forgify/internal/forge"
 	"github.com/sunweilin/forgify/internal/storage"
 )
 
@@ -83,6 +84,14 @@ func (s *ToolService) Save(t *Tool) error {
 				s.SaveVersion(t.ID, oldCode, summary)
 			}
 		}
+	}
+
+	// Ensure code annotations are consistent with metadata fields
+	if t.Code != "" {
+		t.Code = forge.NormalizeCodeAnnotations(
+			t.Code, t.DisplayName, t.Description, t.Category,
+			t.Version, t.Builtin, t.RequiresKey,
+		)
 	}
 
 	reqJSON, _ := json.Marshal(t.Requirements)
@@ -280,7 +289,30 @@ func (s *ToolService) AcceptPendingChange(id string) error {
 	_, err = storage.DB().Exec(`
 		UPDATE tools SET code=pending_code, pending_code=NULL, pending_summary=NULL, updated_at=datetime('now')
 		WHERE id=?`, id)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Re-sync: parse metadata from the new code and normalize annotations
+	updated, _ := s.Get(id)
+	if updated != nil && updated.Code != "" {
+		if meta := forge.ParseMeta(updated.Code); meta != nil {
+			if meta.DisplayName != "" {
+				updated.DisplayName = meta.DisplayName
+			}
+			if meta.Description != "" {
+				updated.Description = meta.Description
+			}
+			if meta.Category != "" {
+				updated.Category = meta.Category
+			}
+			if meta.Version != "" {
+				updated.Version = meta.Version
+			}
+		}
+		return s.Save(updated)
+	}
+	return nil
 }
 
 func (s *ToolService) RejectPendingChange(id string) error {
@@ -302,23 +334,39 @@ func (s *ToolService) GetPendingChange(id string) (code string, summary string, 
 // ─── Metadata editing ───
 
 func (s *ToolService) UpdateMeta(id string, displayName, description, category *string) error {
-	sets := []string{"updated_at=datetime('now')"}
-	args := []any{}
+	// Read-modify-write: fetch current tool to merge fields and sync code annotations
+	tool, err := s.Get(id)
+	if err != nil || tool == nil {
+		return fmt.Errorf("tool not found")
+	}
+
 	if displayName != nil {
-		sets = append(sets, "display_name=?")
-		args = append(args, *displayName)
+		tool.DisplayName = *displayName
 	}
 	if description != nil {
-		sets = append(sets, "description=?")
-		args = append(args, *description)
+		tool.Description = *description
 	}
 	if category != nil {
-		sets = append(sets, "category=?")
-		args = append(args, *category)
+		tool.Category = *category
+	}
+
+	// Sync code annotations with updated metadata
+	if tool.Code != "" {
+		tool.Code = forge.NormalizeCodeAnnotations(
+			tool.Code, tool.DisplayName, tool.Description, tool.Category,
+			tool.Version, tool.Builtin, tool.RequiresKey,
+		)
+	}
+
+	sets := []string{"display_name=?", "description=?", "category=?", "updated_at=datetime('now')"}
+	args := []any{tool.DisplayName, tool.Description, tool.Category}
+	if tool.Code != "" {
+		sets = append(sets, "code=?")
+		args = append(args, tool.Code)
 	}
 	args = append(args, id)
 	q := "UPDATE tools SET " + strings.Join(sets, ", ") + " WHERE id=?"
-	_, err := storage.DB().Exec(q, args...)
+	_, err = storage.DB().Exec(q, args...)
 	return err
 }
 

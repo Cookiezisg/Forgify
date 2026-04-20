@@ -98,7 +98,7 @@ function App() {
         </aside>
         <div className="w-px bg-gray-200 flex-shrink-0" />
         <main className="flex flex-col flex-1 min-w-0 h-full overflow-hidden bg-white">
-          {sidebarPad > 0 && <div style={{ height: sidebarPad, flexShrink: 0 }} />}
+          {isElectron && <div style={{ height: 6, flexShrink: 0, WebkitAppRegion: 'drag' } as React.CSSProperties} />}
           <div className="flex-1 overflow-hidden">
             <MainContent nav={nav} />
           </div>

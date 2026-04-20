@@ -21,7 +21,7 @@ export function LayoutRouter({ tab }: { tab: TabItem }) {
 
     case 'chat-tool':
       return tab.conversationId && tab.toolId
-        ? <ChatToolLayout conversationId={tab.conversationId} toolId={tab.toolId} tabId={tab.id} />
+        ? <ChatToolLayout conversationId={tab.conversationId} toolId={tab.toolId} tabId={tab.id} chatLabel={tab.label} />
         : <PlaceholderView text="加载中..." />
 
     case 'chat-workflow':

@@ -155,6 +155,9 @@ func ParseMeta(code string) *CodeMeta {
 		case comment == "@builtin":
 			meta.IsBuiltin = true
 			found = true
+		case comment == "@custom":
+			meta.IsBuiltin = false
+			found = true
 		case strings.HasPrefix(comment, "@version "):
 			meta.Version = strings.TrimPrefix(comment, "@version ")
 			found = true
@@ -183,6 +186,72 @@ func ParseMeta(code string) *CodeMeta {
 		meta.Version = "1.0"
 	}
 	return meta
+}
+
+// NormalizeCodeAnnotations ensures the # @ annotation block at the top of Python code
+// matches the given metadata fields. Replaces any existing annotations with a complete,
+// consistently ordered block. The function is idempotent.
+func NormalizeCodeAnnotations(code, displayName, description, category, version string, isBuiltin bool, requiresKey string) string {
+	if code == "" {
+		return code
+	}
+
+	lines := strings.Split(code, "\n")
+
+	// Find where the header ends (first non-comment, non-blank line)
+	headerEnd := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			headerEnd = i + 1
+			continue
+		}
+		break
+	}
+
+	// From header, keep non-annotation comments; strip @ lines and blanks
+	var keptComments []string
+	for _, line := range lines[:headerEnd] {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# @") || trimmed == "" {
+			continue
+		}
+		keptComments = append(keptComments, line)
+	}
+
+	// Build new annotation block (fixed order)
+	var block []string
+	if isBuiltin {
+		block = append(block, "# @builtin")
+	} else {
+		block = append(block, "# @custom")
+	}
+	if version == "" {
+		version = "1.0"
+	}
+	block = append(block, "# @version "+version)
+	if category == "" {
+		category = "other"
+	}
+	block = append(block, "# @category "+category)
+	if displayName != "" {
+		block = append(block, "# @display_name "+displayName)
+	}
+	if description != "" {
+		block = append(block, "# @description "+description)
+	}
+	if requiresKey != "" {
+		block = append(block, "# @requires_key "+requiresKey)
+	}
+
+	// Assemble: annotations → kept comments → blank separator → code body
+	var result []string
+	result = append(result, block...)
+	result = append(result, keptComments...)
+	result = append(result, "") // blank separator
+	result = append(result, lines[headerEnd:]...)
+
+	return strings.Join(result, "\n")
 }
 
 func normalizeType(t string) string {

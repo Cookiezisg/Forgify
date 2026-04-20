@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Loader } from 'lucide-react'
-import Editor from '@monaco-editor/react'
+import Editor, { DiffEditor } from '@monaco-editor/react'
 import { api } from '@/lib/api'
 import { onEvent, EventNames } from '@/lib/events'
 import { useT } from '@/lib/i18n'
@@ -14,6 +14,7 @@ interface Tool {
   category: string
   status: string
   builtin: boolean
+  version: string
   parameters: { name: string; type: string; required: boolean; default?: string; doc?: string }[]
 }
 
@@ -26,12 +27,21 @@ interface TestRecord {
   createdAt: string
 }
 
+interface ToolVersion {
+  id: string
+  version: number
+  code: string
+  changeSummary: string
+  createdAt: string
+}
+
 type Tab = 'code' | 'params' | 'test'
 
 export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted: () => void }) {
   const t = useT()
   const [tool, setTool] = useState<Tool | null>(null)
   const [tab, setTab] = useState<Tab>('code')
+  const [historyMode, setHistoryMode] = useState(false)
 
   const load = useCallback(() => {
     api<Tool>(`/api/tools/${toolId}`).then(setTool).catch(() => {})
@@ -138,6 +148,41 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
                 }).then(load)
               }}
             />
+            {/* Category + version */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              <InlineSelect
+                value={tool.category}
+                readonly={tool.builtin}
+                options={[
+                  { value: 'email', label: t('tools.email') },
+                  { value: 'data', label: t('tools.data') },
+                  { value: 'web', label: t('tools.web') },
+                  { value: 'file', label: t('tools.file') },
+                  { value: 'system', label: t('tools.system') },
+                  { value: 'other', label: t('tools.other') },
+                ]}
+                style={{ fontSize: 11, color: '#6b7280' }}
+                onSave={(v) => {
+                  api(`/api/tools/${tool.id}/meta`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category: v }),
+                  }).then(load)
+                }}
+              />
+              <button
+                onClick={() => setHistoryMode(true)}
+                title="版本历史"
+                style={{
+                  fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                  background: '#f3f4f6', color: '#9b9a97',
+                  border: 'none', cursor: 'pointer', transition: 'background 100ms',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#e5e7eb' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#f3f4f6' }}
+              >
+                v{tool.version || '1.0'} ↗
+              </button>
+            </div>
             {/* Tag bar */}
             {!tool.builtin && <TagBar toolId={tool.id} />}
           </div>
@@ -158,28 +203,38 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{
-        display: 'flex', gap: 0, paddingLeft: 20,
-        borderBottom: '1px solid #e5e7eb', flexShrink: 0,
-      }}>
-        {tabs.map(({ id, label }) => (
-          <button key={id} onClick={() => setTab(id)} style={{
-            padding: '8px 16px', fontSize: 13, fontWeight: tab === id ? 500 : 400,
-            color: tab === id ? '#111827' : '#9b9a97',
-            borderBottom: tab === id ? '2px solid #111827' : '2px solid transparent',
-            background: 'none', border: 'none', borderBottomWidth: 2, borderBottomStyle: 'solid',
-            cursor: 'pointer', transition: 'color 100ms',
-          }}>{label}</button>
-        ))}
-      </div>
+      {historyMode ? (
+        <VersionHistoryView
+          tool={tool}
+          onBack={() => setHistoryMode(false)}
+          onRestore={() => { setHistoryMode(false); load() }}
+        />
+      ) : (
+        <>
+          {/* Tabs */}
+          <div style={{
+            display: 'flex', gap: 0, paddingLeft: 20,
+            borderBottom: '1px solid #e5e7eb', flexShrink: 0,
+          }}>
+            {tabs.map(({ id, label }) => (
+              <button key={id} onClick={() => setTab(id)} style={{
+                padding: '8px 16px', fontSize: 13, fontWeight: tab === id ? 500 : 400,
+                color: tab === id ? '#111827' : '#9b9a97',
+                borderBottom: tab === id ? '2px solid #111827' : '2px solid transparent',
+                background: 'none', border: 'none', borderBottomWidth: 2, borderBottomStyle: 'solid',
+                cursor: 'pointer', transition: 'color 100ms',
+              }}>{label}</button>
+            ))}
+          </div>
 
-      {/* Tab content */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        {tab === 'code' && <CodeTab tool={tool} onSave={load} />}
-        {tab === 'params' && <ParamsTab params={tool.parameters} />}
-        {tab === 'test' && <TestTab tool={tool} />}
-      </div>
+          {/* Tab content */}
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            {tab === 'code' && <CodeTab tool={tool} onSave={load} />}
+            {tab === 'params' && <ParamsTab params={tool.parameters} />}
+            {tab === 'test' && <TestTab tool={tool} />}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -372,6 +427,143 @@ function CodeTab({ tool, onSave }: { tool: Tool; onSave: () => void }) {
       </div>
     </div>
   )
+}
+
+// ─── Version History View ───
+
+function VersionHistoryView({ tool, onBack, onRestore }: {
+  tool: Tool; onBack: () => void; onRestore: () => void
+}) {
+  const [versions, setVersions] = useState<ToolVersion[]>([])
+  const [selected, setSelected] = useState<ToolVersion | null>(null)
+  const [restoring, setRestoring] = useState(false)
+
+  useEffect(() => {
+    api<ToolVersion[]>(`/api/tools/${tool.id}/versions`).then(vs => {
+      setVersions(vs)
+      if (vs.length > 0) setSelected(vs[0])
+    }).catch(() => {})
+  }, [tool.id])
+
+  const handleRestore = async () => {
+    if (!selected || !window.confirm(`确定恢复到版本 ${selected.version}？`)) return
+    setRestoring(true)
+    try {
+      await api(`/api/tools/${tool.id}/versions/${selected.version}/restore`, { method: 'POST' })
+      onRestore()
+    } catch {} finally { setRestoring(false) }
+  }
+
+  return (
+    <div className="flex flex-col" style={{ flex: 1, overflow: 'hidden' }}>
+      {/* Back header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '8px 16px', borderBottom: '1px solid #e5e7eb', flexShrink: 0,
+      }}>
+        <button
+          onClick={onBack}
+          style={{
+            border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: 13, color: '#2383e2', padding: 0,
+          }}
+        >
+          ← 返回编辑
+        </button>
+        <span style={{ fontSize: 13, color: '#9b9a97' }}>版本历史</span>
+      </div>
+
+      {versions.length === 0 ? (
+        <div className="flex items-center justify-center" style={{ flex: 1 }}>
+          <p style={{ fontSize: 13, color: '#9b9a97' }}>暂无历史版本</p>
+        </div>
+      ) : (
+        <div className="flex" style={{ flex: 1, overflow: 'hidden' }}>
+          {/* Version list */}
+          <div style={{
+            width: 180, flexShrink: 0, borderRight: '1px solid #e5e7eb',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          }}>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {versions.map(v => (
+                <div
+                  key={v.id}
+                  onClick={() => setSelected(v)}
+                  style={{
+                    padding: '10px 12px', cursor: 'pointer',
+                    background: selected?.id === v.id ? '#f3f4f6' : 'transparent',
+                    borderBottom: '1px solid #f3f4f6',
+                    transition: 'background 100ms',
+                  }}
+                  onMouseEnter={(e) => { if (selected?.id !== v.id) e.currentTarget.style.background = '#fafaf9' }}
+                  onMouseLeave={(e) => { if (selected?.id !== v.id) e.currentTarget.style.background = 'transparent' }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#374151' }}>
+                    v{v.version}
+                    <span style={{ fontWeight: 400, color: '#9b9a97', marginLeft: 6 }}>
+                      {timeAgo(v.createdAt)}
+                    </span>
+                  </div>
+                  {v.changeSummary && (
+                    <div style={{
+                      fontSize: 11, color: '#6b7280', marginTop: 2,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {v.changeSummary}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {/* Restore button */}
+            {selected && (
+              <div style={{ padding: 10, borderTop: '1px solid #e5e7eb', flexShrink: 0 }}>
+                <button
+                  onClick={handleRestore}
+                  disabled={restoring}
+                  style={{
+                    width: '100%', padding: '6px 0', fontSize: 12,
+                    borderRadius: 5, border: '1px solid #e5e7eb',
+                    background: 'white', color: '#374151', cursor: 'pointer',
+                  }}
+                >
+                  {restoring ? '恢复中...' : `恢复 v${selected.version}`}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Diff viewer */}
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            {selected && (
+              <DiffEditor
+                height="100%"
+                original={selected.code}
+                modified={tool.code}
+                language="python"
+                theme="light"
+                options={{
+                  readOnly: true,
+                  renderSideBySide: true,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  fontSize: 13,
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+  return `${Math.floor(diff / 86400000)} 天前`
 }
 
 // ─── Inline Diff Component (red/green line-level) ───
@@ -645,6 +837,83 @@ function InlineEdit({
         width: '100%',
       }}
     />
+  )
+}
+
+// ─── InlineSelect (dropdown version of InlineEdit) ───
+
+function InlineSelect({
+  value, options, readonly, style, onSave,
+}: {
+  value: string
+  options: { value: string; label: string }[]
+  readonly?: boolean
+  style?: React.CSSProperties
+  onSave: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Close on outside click or Escape
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const label = options.find(o => o.value === value)?.label || value
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <span
+        onClick={() => !readonly && setOpen(!open)}
+        style={{
+          ...style,
+          cursor: readonly ? 'default' : 'pointer',
+          borderBottom: readonly ? 'none' : '1px dashed transparent',
+          transition: 'border-color 100ms',
+        }}
+        onMouseEnter={(e) => { if (!readonly) (e.currentTarget.style.borderBottomColor = '#d1d5db') }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderBottomColor = 'transparent' }}
+      >
+        {label}
+      </span>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,
+          background: 'white', border: '1px solid #e5e7eb', borderRadius: 6,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.08)', padding: '4px 0', minWidth: 120,
+        }}>
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                if (opt.value !== value) onSave(opt.value)
+                setOpen(false)
+              }}
+              style={{
+                display: 'block', width: '100%', padding: '5px 12px',
+                border: 'none', background: opt.value === value ? '#f3f4f6' : 'none',
+                textAlign: 'left', cursor: 'pointer',
+                color: '#374151', fontSize: 12,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#f3f4f6' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = opt.value === value ? '#f3f4f6' : 'none' }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

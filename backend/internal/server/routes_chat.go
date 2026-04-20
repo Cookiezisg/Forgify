@@ -220,13 +220,21 @@ func doStream(
 		cancelsMu.Unlock()
 	}()
 
-	// Phase 1: Generate (non-streaming) for tool calls
+	// Check if this is a bound conversation (has tools attached to LLM)
+	conv, _ := convSvc.Get(conversationID)
+	hasBoundTool := conv != nil && conv.AssetID != nil && conv.AssetType != nil && *conv.AssetType == "tool"
+
+	// Phase 1: Generate (non-streaming) for tool calls — only for bound conversations
 	currentHistory := history
 	for iteration := 0; iteration < 3; iteration++ {
-		// Tell frontend right panel to show generating state
+		if !hasBoundTool {
+			break // Unbound conversations skip straight to streaming
+		}
+
+		// Only show "generating" indicator for bound tool conversations
 		status := "AI 正在修改代码..."
 		if iteration == 0 {
-			status = "AI 正在思考..."
+			status = "AI 正在分析..."
 		}
 		bridge.Emit(events.ForgeCodeStreaming, map[string]any{
 			"conversationId": conversationID,

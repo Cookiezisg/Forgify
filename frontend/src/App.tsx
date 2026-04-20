@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { LocaleProvider } from './lib/i18n'
+import { InboxProvider } from './context/InboxContext'
+import { ChatProvider } from './context/ChatContext'
+import { TabProvider, useTabContext } from './context/TabContext'
 import { SidebarNav, type NavTab } from './components/SidebarNav'
+import { TabBar } from './components/TabBar'
+import { LayoutRouter } from './components/layouts/LayoutRouter'
 import { HomeLeftPanel, HomeContent } from './pages/HomePage'
 import { ChatLeftPanel } from './pages/ChatPage'
 import { AssetsLeftPanel } from './pages/AssetsPage'
@@ -10,6 +16,42 @@ import { SettingsLeftPanel, SettingsContent } from './pages/SettingsPage'
 const TRAFFIC_LIGHT_HEIGHT = 38
 const SIDEBAR_WIDTH = 280
 
+function TabManagedContent() {
+  const { tabs, activeTabId } = useTabContext()
+  if (tabs.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p style={{ fontSize: 14, color: '#9b9a97' }}>打开一个对话或资产开始工作</p>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col h-full">
+      <TabBar />
+      <div className="flex-1 overflow-hidden">
+        {tabs.map(tab => (
+          <div key={tab.id} style={{
+            display: tab.id === activeTabId ? 'flex' : 'none',
+            height: '100%', flexDirection: 'column',
+          }}>
+            <LayoutRouter tab={tab} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MainContent({ nav }: { nav: NavTab }) {
+  switch (nav) {
+    case 'home':     return <HomeContent />
+    case 'chat':
+    case 'assets':   return <TabManagedContent />
+    case 'inbox':    return <InboxContent />
+    case 'settings': return <SettingsContent />
+  }
+}
+
 function LeftPanel({ nav }: { nav: NavTab }) {
   switch (nav) {
     case 'home':     return <HomeLeftPanel />
@@ -17,16 +59,6 @@ function LeftPanel({ nav }: { nav: NavTab }) {
     case 'assets':   return <AssetsLeftPanel />
     case 'inbox':    return <InboxLeftPanel />
     case 'settings': return <SettingsLeftPanel />
-  }
-}
-
-function MainContent({ nav }: { nav: NavTab }) {
-  switch (nav) {
-    case 'home':     return <HomeContent />
-    case 'chat':     return <div className="flex items-center justify-center h-full"><p style={{ color: '#9b9a97' }}>Chat UI coming next</p></div>
-    case 'assets':   return <div className="flex items-center justify-center h-full"><p style={{ color: '#9b9a97' }}>Assets UI coming next</p></div>
-    case 'inbox':    return <InboxContent />
-    case 'settings': return <SettingsContent />
   }
 }
 
@@ -48,7 +80,11 @@ function App() {
   }, [])
 
   return (
+    <ErrorBoundary>
     <LocaleProvider>
+    <InboxProvider>
+    <ChatProvider>
+    <TabProvider>
       <div className="flex h-screen w-screen overflow-hidden bg-white text-gray-900">
         <aside style={{ width: SIDEBAR_WIDTH }} className="flex flex-col flex-shrink-0 bg-white relative">
           {sidebarPad > 0 && (
@@ -64,7 +100,11 @@ function App() {
           <MainContent nav={nav} />
         </main>
       </div>
+    </TabProvider>
+    </ChatProvider>
+    </InboxProvider>
     </LocaleProvider>
+    </ErrorBoundary>
   )
 }
 

@@ -19,7 +19,7 @@ function connect(): void {
   })
 }
 
-export const EV = {
+export const EventNames = {
   ChatToken:         'chat.token',
   ChatDone:          'chat.done',
   ChatError:         'chat.error',
@@ -28,7 +28,9 @@ export const EV = {
   ChatTitleUpdated:  'chat.title_updated',
   ForgeCodeDetected: 'forge.code_detected',
   ForgeCodeUpdated:  'forge.code_updated',
+  ForgeCodeStreaming: 'forge.code_streaming',
   Notification:      'notification',
+  MailboxUpdated:    'mailbox.updated',
 } as const
 
 export function onEvent<T = unknown>(name: string, handler: (payload: T) => void): () => void {

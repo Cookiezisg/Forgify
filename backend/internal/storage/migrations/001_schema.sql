@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS tools (
     requirements     JSON NOT NULL DEFAULT '[]',
     parameters       JSON NOT NULL DEFAULT '[]',
     category         TEXT NOT NULL DEFAULT 'other',
-    status           TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','tested','failed')),
+    status           TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','tested','failed','deleted')),
     builtin          BOOLEAN NOT NULL DEFAULT FALSE,
     version          TEXT NOT NULL DEFAULT '1.0',
     requires_key     TEXT,

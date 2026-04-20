@@ -47,6 +47,25 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
     )
   }
 
+  // Show deleted state
+  if (tool.status === 'deleted') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 12 }}>
+        <p style={{ fontSize: 16, fontWeight: 500, color: '#9b9a97' }}>🗑️ 工具已删除</p>
+        <p style={{ fontSize: 13, color: '#c7c7c5' }}>{tool.displayName}</p>
+        <button onClick={async () => {
+          await api(`/api/tools/${toolId}/restore`, { method: 'POST' })
+          load()
+        }} style={{
+          padding: '6px 16px', fontSize: 13, borderRadius: 6,
+          border: '1px solid #e5e7eb', background: 'white', color: '#374151', cursor: 'pointer',
+        }}>
+          恢复工具
+        </button>
+      </div>
+    )
+  }
+
   const handleDelete = async () => {
     if (!window.confirm(t('tools.confirmDelete'))) return
     await api(`/api/tools/${toolId}`, { method: 'DELETE' })

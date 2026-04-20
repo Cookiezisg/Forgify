@@ -123,7 +123,7 @@ func (s *ToolService) GetByName(name string) (*Tool, error) {
 		SELECT id, name, display_name, description, code, requirements,
 		       parameters, category, status, builtin, version, requires_key,
 		       last_test_at, last_test_passed, created_at, updated_at
-		FROM tools WHERE name = ?`, name)
+		FROM tools WHERE name = ? AND status != 'deleted'`, name)
 	if err != nil || len(tools) == 0 {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func (s *ToolService) List(category, query string) ([]*Tool, error) {
 	q := `SELECT id, name, display_name, description, code, requirements,
 	             parameters, category, status, builtin, version, requires_key,
 	             last_test_at, last_test_passed, created_at, updated_at
-	      FROM tools WHERE 1=1`
+	      FROM tools WHERE status != 'deleted'`
 	var args []any
 
 	if category != "" && category != "all" {
@@ -150,15 +150,39 @@ func (s *ToolService) List(category, query string) ([]*Tool, error) {
 	return s.scan(q, args...)
 }
 
+// Delete soft-deletes a tool (moves to recycle bin). Built-in tools cannot be deleted.
 func (s *ToolService) Delete(id string) error {
-	// Don't allow deleting built-in tools
 	var builtin bool
 	storage.DB().QueryRow("SELECT builtin FROM tools WHERE id=?", id).Scan(&builtin)
 	if builtin {
 		return nil
 	}
-	_, err := storage.DB().Exec("DELETE FROM tools WHERE id = ?", id)
+	_, err := storage.DB().Exec(
+		`UPDATE tools SET status='deleted', updated_at=datetime('now') WHERE id=?`, id)
 	return err
+}
+
+// Restore moves a tool out of the recycle bin back to draft status.
+func (s *ToolService) Restore(id string) error {
+	_, err := storage.DB().Exec(
+		`UPDATE tools SET status='draft', updated_at=datetime('now') WHERE id=? AND status='deleted'`, id)
+	return err
+}
+
+// PermanentDelete actually removes a tool from the database. Use for recycle bin cleanup.
+func (s *ToolService) PermanentDelete(id string) error {
+	_, err := storage.DB().Exec("DELETE FROM tools WHERE id=? AND status='deleted'", id)
+	return err
+}
+
+// ListDeleted returns tools in the recycle bin.
+func (s *ToolService) ListDeleted() ([]*Tool, error) {
+	return s.scan(`
+		SELECT id, name, display_name, description, code, requirements,
+		       parameters, category, status, builtin, version, requires_key,
+		       last_test_at, last_test_passed, created_at, updated_at
+		FROM tools WHERE status='deleted'
+		ORDER BY updated_at DESC`)
 }
 
 func (s *ToolService) UpdateTestResult(id string, passed bool) error {

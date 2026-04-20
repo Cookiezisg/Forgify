@@ -108,6 +108,33 @@ func (s *Server) deleteTool(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) restoreTool(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.Restore(id); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) permanentDeleteTool(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.toolSvc.PermanentDelete(id); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listDeletedTools(w http.ResponseWriter, r *http.Request) {
+	tools, err := s.toolSvc.ListDeleted()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, tools)
+}
+
 func (s *Server) runTool(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	tool, err := s.toolSvc.Get(id)

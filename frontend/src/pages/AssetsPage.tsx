@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Search, Upload } from 'lucide-react'
+import { Plus, Search, Upload, Trash2, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ToolCard } from '@/components/tools/ToolCard'
 import { useTabContext } from '@/context/TabContext'
@@ -156,7 +156,82 @@ export function AssetsLeftPanel() {
               onClick={() => handleOpenTool(tool)} />
           ))
         )}
+
+        {/* Recycle Bin */}
+        <RecycleBin onRestored={load} />
       </div>
+    </div>
+  )
+}
+
+function RecycleBin({ onRestored }: { onRestored: () => void }) {
+  const [show, setShow] = useState(false)
+  const [deleted, setDeleted] = useState<Tool[]>([])
+
+  const loadDeleted = useCallback(() => {
+    api<Tool[]>('/api/tools/deleted').then(setDeleted).catch(() => {})
+  }, [])
+
+  useEffect(() => { if (show) loadDeleted() }, [show, loadDeleted])
+
+  const handleRestore = async (id: string) => {
+    await api(`/api/tools/${id}/restore`, { method: 'POST' }).catch(() => {})
+    loadDeleted()
+    onRestored()
+  }
+
+  const handlePermanent = async (id: string) => {
+    if (!window.confirm('永久删除此工具？此操作不可恢复。')) return
+    await api(`/api/tools/${id}/permanent`, { method: 'DELETE' }).catch(() => {})
+    loadDeleted()
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button
+        onClick={() => setShow(!show)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+          padding: '6px 10px', borderRadius: 6, border: 'none',
+          background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#9b9a97',
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = '#f9fafb')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+      >
+        <Trash2 size={12} strokeWidth={1.6} />
+        {show ? '隐藏回收站' : '回收站'}
+        {!show && deleted.length > 0 && (
+          <span style={{ fontSize: 10, color: '#c7c7c5' }}>({deleted.length})</span>
+        )}
+      </button>
+
+      {show && deleted.map(tool => (
+        <div key={tool.id} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '4px 10px', fontSize: 12, color: '#9b9a97',
+        }}>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {tool.displayName}
+          </span>
+          <button onClick={() => handleRestore(tool.id)} title="恢复"
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9b9a97', padding: 2, display: 'flex' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#374151')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#9b9a97')}
+          >
+            <RotateCcw size={12} />
+          </button>
+          <button onClick={() => handlePermanent(tool.id)} title="永久删除"
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9b9a97', padding: 2, display: 'flex' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#dc2626')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#9b9a97')}
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
+      {show && deleted.length === 0 && (
+        <p style={{ fontSize: 11, color: '#c7c7c5', padding: '4px 10px' }}>回收站为空</p>
+      )}
     </div>
   )
 }

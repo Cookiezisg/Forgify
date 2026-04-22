@@ -12,7 +12,7 @@
 | Phase | 内容 | 工时 | 状态 | 完成日期 |
 |---|---|---|---|---|
 | **Phase 0** | 骨架：go mod + main.go + 目录结构 + /health | 4h | ✅ 完成 | 2026-04-22 |
-| **Phase 1** | Infra 基础：GORM / logger / crypto / events / middleware | 6h | ⬜ 未开始 | — |
+| **Phase 1** | Infra 基础：GORM / logger / crypto / events / middleware | 6h | 🔄 进行中（2/7） | — |
 | **Phase 2** | Domain + Infra 实现（6 个域，按复杂度） | 15h | ⬜ 未开始 | — |
 | **Phase 3** | 集成和数据迁移 | 4h | ⬜ 未开始 | — |
 | **Phase 4** | 完整测试（契约、端到端、性能） | 6h | ⬜ 未开始 | — |
@@ -28,6 +28,10 @@
 | 2026-04-22 | 确定 12 条契约标准（N1-N5 API + D1-D5 DB + E1-E2 SSE） |
 | 2026-04-22 | 确定 4 层架构：domain / app / infra / transport，GORM，单份结构带 tag |
 | 2026-04-22 | Phase 0 完成：`backend-new/` 骨架，`/api/v1/health` 返回 envelope，优雅退出 |
+| 2026-04-22 | 立 **S11 双语注释规范**（英文 + 中文），backend-new 全套代码/注释必须遵守 |
+| 2026-04-22 | 日志框架定为 **zap**（dev 彩色 / prod JSON），`infra/logger/zap.go` 封装 |
+| 2026-04-22 | transport 层结构升级：`http/` → `httpapi/`（避免包名冲突），拆出 `response/` / `middleware/` / `handlers/` 3 个子包，通用能力和业务 handler 分离 |
+| 2026-04-22 | Phase 1 Step 2 完成：`response/envelope.go`（Success/Created/NoContent/Paged/Error）+ `response/errmap.go`（FromDomainError），N1 标准落地为强制 API |
 
 ---
 
@@ -89,7 +93,31 @@
 - **S6 handler ≤ 20 行**：只解析/调用/序列化
 - **S8 SQL 只在 `infra/gorm/`**：其他层出现 SQL 都是违规
 - **S9 context 传播**：每个跨层调用传 `ctx`
-- **S10 结构化日志**：用 `slog`，统一 schema
+- **S10 结构化日志**：用 **zap**，生产 JSON / 开发带彩色
+- **S11 双语注释**：从 `backend-new/` 开始，所有注释（包/函数/类型/内联）必须**英文 + 中文**双语。格式：英文块在前，空行，中文块在后。示例见下方
+
+**S11 注释格式范例**：
+
+```go
+// Package logger provides the project-wide zap logger factory.
+// Logger is injected via DI from cmd/server/main.go.
+//
+// Package logger 提供项目级 zap logger 工厂。
+// Logger 通过 DI 从 cmd/server/main.go 注入。
+package logger
+
+// New builds a zap logger. dev=true selects the colored console encoder;
+// dev=false selects production JSON.
+//
+// New 构建 zap logger。dev=true 使用彩色控制台编码器；dev=false 使用生产 JSON。
+func New(dev bool) (*zap.Logger, error) {
+    // WriteTimeout intentionally 0: SSE streams may run for minutes.
+    // WriteTimeout 特意设为 0：SSE 流可能持续几分钟。
+    ...
+}
+```
+
+**为什么 S11**：团队读写效率最大化——英文保持代码专业性和搜索友好，中文降低理解成本，尤其对架构决策/业务规则注释。
 
 ---
 
@@ -166,29 +194,39 @@ backend-new/
     │       └── slog.go
     │
     └── transport/
-        └── http/
-            ├── server.go
+        └── httpapi/                ← 包名避开 net/http 冲突
+            ├── server.go           ← HTTP 服务器生命周期（启动、优雅关闭）
             ├── router.go           ← 路由注册集中管理
-            ├── middleware/
-            │   ├── recover.go      ← panic 恢复（新）
-            │   ├── logger.go       ← 请求日志（新）
-            │   ├── cors.go
-            │   └── error.go        ← 统一错误响应
-            ├── response.go         ← envelope 包装工具
-            ├── pagination.go       ← cursor 分页工具
-            ├── chat.go             ← handlers（每个 < 20 行）
-            ├── conversation.go
-            ├── tool.go
-            ├── apikey.go
-            ├── attachment.go
-            ├── model.go
-            ├── sse.go
-            └── health.go
+            ├── deps.go             ← DI 结构体（持有所有 service）
+            │
+            ├── response/           ← 📦 通用能力：响应包装（独立包）
+            │   ├── envelope.go     ← Success / Created / NoContent / Paged / Error
+            │   └── errmap.go       ← FromDomainError + 错误映射表
+            │
+            ├── middleware/         ← 📦 通用能力：中间件（独立包）
+            │   ├── recover.go      ← panic 恢复
+            │   ├── logger.go       ← 请求日志
+            │   ├── cors.go         ← 跨域
+            │   └── notfound.go     ← 404 envelope（覆盖默认裸文本）
+            │
+            └── handlers/           ← 📦 业务 handler（独立包）
+                ├── health.go
+                ├── chat.go
+                ├── tool.go
+                ├── conversation.go
+                ├── apikey.go
+                ├── attachment.go
+                ├── model.go
+                └── sse.go
 ```
 
-**依赖方向**：`transport → domain`、`infra → domain`（实现接口）、`domain` 不依赖任何人。
+**依赖方向**：`transport → app → domain`、`infra → domain`（实现接口）、`domain` 不依赖任何人。
 
 **类型策略**：domain 类型直接带 GORM tag（一份到底）。
+
+**transport/httpapi 内部分层原则**：**稳定的（通用能力）和频繁变的（业务 handler）分开放**。
+- `response/` `middleware/` 属于框架级通用能力，写一次用很久
+- `handlers/` 属于业务级代码，每加一个 feature 就新增/修改
 
 ---
 

@@ -29,7 +29,7 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
-	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/response"
+	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/router"
 )
 
 func main() {
@@ -55,8 +55,12 @@ func main() {
 	}
 	defer closeDB(db, log)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/health", healthHandler)
+	// Assemble the HTTP handler: routes + middleware chain.
+	// All route registration lives in router/ and handlers/, not here.
+	//
+	// 组装 HTTP handler：路由 + 中间件链。
+	// 所有路由注册都在 router/ 和 handlers/，main.go 不沾具体路由。
+	handler := router.New(router.Deps{Log: log})
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
@@ -71,7 +75,7 @@ func main() {
 	fmt.Printf("BACKEND_PORT=%d\n", actualPort)
 
 	srv := &http.Server{
-		Handler:     mux,
+		Handler:     handler,
 		ReadTimeout: 15 * time.Second,
 		// WriteTimeout intentionally 0: SSE streams may run for minutes.
 		//
@@ -136,11 +140,3 @@ func closeDB(db *gorm.DB, log *zap.Logger) {
 	}
 }
 
-// healthHandler returns {"data": {"status": "ok"}} — used by Electron to
-// detect backend readiness after spawn.
-//
-// healthHandler 返回 {"data": {"status": "ok"}} — 供 Electron 在启动后端
-// 子进程后检测就绪。
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	response.Success(w, http.StatusOK, map[string]string{"status": "ok"})
-}

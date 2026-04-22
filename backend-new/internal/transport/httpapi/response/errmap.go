@@ -26,7 +26,7 @@ import (
 
 	"go.uber.org/zap"
 
-	derrors "github.com/sunweilin/forgify-new/internal/domain/errors"
+	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
 )
 
 // errMapping pairs a sentinel with its HTTP status and stable wire code.

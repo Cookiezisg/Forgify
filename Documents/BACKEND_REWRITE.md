@@ -32,6 +32,11 @@
 | 2026-04-22 | 日志框架定为 **zap**（dev 彩色 / prod JSON），`infra/logger/zap.go` 封装 |
 | 2026-04-22 | transport 层结构升级：`http/` → `httpapi/`（避免包名冲突），拆出 `response/` / `middleware/` / `handlers/` 3 个子包，通用能力和业务 handler 分离 |
 | 2026-04-22 | Phase 1 Step 2 完成：`response/envelope.go`（Success/Created/NoContent/Paged/Error）+ `response/errmap.go`（FromDomainError），N1 标准落地为强制 API |
+| 2026-04-23 | Phase 1 Step 3 完成：`pagination/cursor.go`（Parse/EncodeCursor/DecodeCursor），cursor 分页 + 10 个单元测试 |
+| 2026-04-23 | Phase 1 Step 4a 完成：`middleware/recover.go`，panic → 500 INTERNAL_ERROR，+ 6 个单测（含敏感信息不泄漏的安全守卫） |
+| 2026-04-23 | Phase 1 Step 4b 完成：`middleware/logger.go`，访问日志（method/path/status/bytes/elapsed），+ 6 个单测 |
+| 2026-04-23 | Phase 1 Step 4c 完成：`middleware/notfound.go`，envelope 格式 404 fallback，+ 4 个单测（含回归守卫） |
+| 2026-04-23 | 模块名纠正：`github.com/sunweilin/forgify-new` → `github.com/sunweilin/forgify/backend`，采用 Go multi-module repo 标准命名，Phase 5 切换时目录和模块已对齐 |
 
 ---
 

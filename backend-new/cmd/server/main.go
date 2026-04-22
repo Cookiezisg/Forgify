@@ -28,8 +28,8 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/sunweilin/forgify-new/internal/infra/logger"
-	"github.com/sunweilin/forgify-new/internal/transport/httpapi/response"
+	"github.com/sunweilin/forgify/backend/internal/infra/logger"
+	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/response"
 )
 
 func main() {

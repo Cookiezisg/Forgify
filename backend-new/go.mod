@@ -1,4 +1,4 @@
-module github.com/sunweilin/forgify-new
+module github.com/sunweilin/forgify/backend
 
 go 1.25.1
 

@@ -12,7 +12,7 @@
 | Phase | 内容 | 工时 | 状态 | 完成日期 |
 |---|---|---|---|---|
 | **Phase 0** | 骨架：go mod + main.go + 目录结构 + /health | 4h | ✅ 完成 | 2026-04-22 |
-| **Phase 1** | Infra 基础：GORM / logger / crypto / events / middleware | 6h | 🔄 进行中（4/7） | — |
+| **Phase 1** | Infra 基础：GORM / logger / crypto / events / middleware | 6h | 🔄 进行中（5/7） | — |
 | **Phase 2** | Domain + Infra 实现（6 个域，按复杂度） | 15h | ⬜ 未开始 | — |
 | **Phase 3** | 集成和数据迁移 | 4h | ⬜ 未开始 | — |
 | **Phase 4** | 完整测试（契约、端到端、性能） | 6h | ⬜ 未开始 | — |
@@ -40,6 +40,7 @@
 | 2026-04-23 | Phase 1 Step 4d 完成：`middleware/cors.go`，白名单 CORS（拒绝 `*`），+ 7 单测 |
 | 2026-04-23 | Phase 1 Step 4e 完成：`router/` 子包（router.go + deps.go + router_test.go）+ `handlers/health.go`（Register pattern 模版），4 个集成测试验证端到端中间件链 |
 | 2026-04-23 | Phase 1 地基完成 4/7：所有中间件 + 路由总装 + Handler pattern 就位，37 个测试零失败。`/api/v1/health` 与 `/api/v1/nonexistent` 均走 envelope，CORS preflight 正确响应，访问日志按预期输出 |
+| 2026-04-23 | Phase 1 Step 5 完成：crypto 接口化（`domain/crypto/Encryptor`）+ AES-GCM 实现（`infra/crypto/aesgcm.go`），老代码 4 个安全问题全部修复（fallback 密钥灾难、decrypt 返 nil nil bug、无版本标识、shell 命令脆弱），密文加 `v1:` 前缀为未来 KMS 信封加密留兼容位。14 个新测试，累计 51 个 |
 
 ---
 

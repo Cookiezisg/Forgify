@@ -1,14 +1,14 @@
 // Forgify backend — clean architecture skeleton.
 //
-// Phase 0: minimal bootstrap. Starts an HTTP server on a free port, opens a
-// SQLite database via GORM, and exposes /api/v1/health so Electron can detect
-// readiness. Per-domain handlers and services are wired in during Phase 2.
+// Phase 0/1: bootstrap that wires up logger, DB (via infra/gorm), HTTP
+// router (with all middlewares), and graceful shutdown. Per-domain
+// handlers and services are wired in during Phase 2 through router.Deps.
 //
 // Forgify 后端 — 清晰架构骨架。
 //
-// Phase 0：最小引导。启动一个监听空闲端口的 HTTP 服务器，通过 GORM 打开
-// SQLite 数据库，并暴露 /api/v1/health 供 Electron 检测后端就绪。各 domain
-// 的 handler 和 service 在 Phase 2 接入。
+// Phase 0/1：启动流程，组装 logger、DB（通过 infra/gorm）、HTTP 路由
+// （含全部中间件）、优雅关闭。各 domain 的 handler 和 service 在 Phase 2
+// 通过 router.Deps 接入。
 package main
 
 import (
@@ -24,10 +24,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 
+	gormdb "github.com/sunweilin/forgify/backend/internal/infra/gorm"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/router"
 )
@@ -48,12 +46,26 @@ func main() {
 	// 退出时刷出缓存日志。错误忽略，因为进程反正要退。
 	defer log.Sync() //nolint:errcheck
 
-	db, err := openDB(*dataDir)
+	db, err := gormdb.Open(gormdb.Config{DataDir: *dataDir})
 	if err != nil {
 		log.Error("open db", zap.Error(err))
 		os.Exit(1)
 	}
-	defer closeDB(db, log)
+	defer func() {
+		if err := gormdb.Close(db); err != nil {
+			log.Warn("close db", zap.Error(err))
+		}
+	}()
+
+	// Phase 2 will extend this call with real domain models:
+	//   gormdb.Migrate(db, &apikey.APIKey{}, &tool.Tool{}, ...)
+	//
+	// Phase 2 会扩展这里为真实 domain model：
+	//   gormdb.Migrate(db, &apikey.APIKey{}, &tool.Tool{}, ...)
+	if err := gormdb.Migrate(db); err != nil {
+		log.Error("migrate db", zap.Error(err))
+		os.Exit(1)
+	}
 
 	// Assemble the HTTP handler: routes + middleware chain.
 	// All route registration lives in router/ and handlers/, not here.
@@ -106,37 +118,3 @@ func main() {
 		log.Error("shutdown", zap.Error(err))
 	}
 }
-
-// openDB opens a SQLite database via GORM. An empty dir yields an in-memory
-// database; otherwise a forgify.db file is created (WAL mode, foreign keys on).
-//
-// openDB 通过 GORM 打开 SQLite 数据库。dir 为空时使用内存数据库；否则在目录下
-// 创建 forgify.db 文件（WAL 模式，外键约束开启）。
-func openDB(dir string) (*gorm.DB, error) {
-	dsn := ":memory:"
-	if dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("mkdir %s: %w", dir, err)
-		}
-		dsn = fmt.Sprintf("%s/forgify.db?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dir)
-	}
-	return gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Warn),
-	})
-}
-
-// closeDB closes the underlying SQL connection. Errors are logged as warnings
-// since the process is exiting anyway.
-//
-// closeDB 关闭底层 SQL 连接。错误仅记录 warning，因为进程反正要退。
-func closeDB(db *gorm.DB, log *zap.Logger) {
-	sqlDB, err := db.DB()
-	if err != nil {
-		log.Warn("close db: get underlying DB", zap.Error(err))
-		return
-	}
-	if err := sqlDB.Close(); err != nil {
-		log.Warn("close db", zap.Error(err))
-	}
-}
-

@@ -214,3 +214,8 @@ export function useTabContext() {
   if (!ctx) throw new Error('useTabContext must be used within TabProvider')
   return ctx
 }
+
+export function useCurrentLayout(): LayoutType | undefined {
+  const { tabs, activeTabId } = useTabContext()
+  return tabs.find(t => t.id === activeTabId)?.layout
+}

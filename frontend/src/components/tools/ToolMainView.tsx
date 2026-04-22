@@ -37,7 +37,7 @@ interface ToolVersion {
 
 type Tab = 'code' | 'params' | 'test'
 
-export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted: () => void }) {
+export function ToolMainView({ toolId, conversationId, onDeleted }: { toolId: string; conversationId?: string; onDeleted: () => void }) {
   const t = useT()
   const [tool, setTool] = useState<Tool | null>(null)
   const [tab, setTab] = useState<Tab>('code')
@@ -231,7 +231,7 @@ export function ToolMainView({ toolId, onDeleted }: { toolId: string; onDeleted:
           <div style={{ flex: 1, overflow: 'hidden' }}>
             {tab === 'code' && <CodeTab tool={tool} onSave={load} />}
             {tab === 'params' && <ParamsTab params={tool.parameters} />}
-            {tab === 'test' && <TestTab tool={tool} />}
+            {tab === 'test' && <TestTab tool={tool} conversationId={conversationId} />}
           </div>
         </>
       )}
@@ -666,12 +666,33 @@ function ParamsTab({ params }: { params: Tool['parameters'] }) {
 
 // ─── Test Tab ───
 
-function TestTab({ tool }: { tool: Tool }) {
+function TestTab({ tool, conversationId }: { tool: Tool; conversationId?: string }) {
   const t = useT()
   const [values, setValues] = useState<Record<string, string>>({})
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<{ output?: any; error?: string; durationMs?: number } | null>(null)
   const [history, setHistory] = useState<TestRecord[]>([])
+  const [copied, setCopied] = useState(false)
+
+  const handleFixWithAI = () => {
+    if (!conversationId || !result?.error) return
+    window.dispatchEvent(new CustomEvent('forge:fix-requested', {
+      detail: {
+        conversationId,
+        toolName: tool.displayName || tool.name,
+        error: result.error,
+      },
+    }))
+  }
+
+  const handleCopyError = async () => {
+    if (!result?.error) return
+    try {
+      await navigator.clipboard.writeText(result.error)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {}
+  }
 
   useEffect(() => {
     api<TestRecord[]>(`/api/tools/${tool.id}/test-history`).then(setHistory).catch(() => {})
@@ -750,17 +771,40 @@ function TestTab({ tool }: { tool: Tool }) {
 
       {/* Result */}
       {result && (
-        <div style={{
-          padding: '10px 14px', borderRadius: 6, fontSize: 12, marginBottom: 16,
-          background: result.error ? '#fef2f2' : '#ecfdf5',
-          color: result.error ? '#991b1b' : '#166534',
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace',
-        }}>
-          {result.error || JSON.stringify(result.output, null, 2)}
-          {result.durationMs != null && (
-            <span style={{ display: 'block', marginTop: 4, color: '#6b7280' }}>
-              {result.durationMs}ms
-            </span>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{
+            padding: '10px 14px', borderRadius: 6, fontSize: 12,
+            background: result.error ? '#fef2f2' : '#ecfdf5',
+            color: result.error ? '#991b1b' : '#166534',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace',
+          }}>
+            {result.error || JSON.stringify(result.output, null, 2)}
+            {result.durationMs != null && (
+              <span style={{ display: 'block', marginTop: 4, color: '#6b7280' }}>
+                {result.durationMs}ms
+              </span>
+            )}
+          </div>
+          {result.error && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {conversationId && (
+                <button onClick={handleFixWithAI} style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '6px 12px', fontSize: 12, fontWeight: 500, borderRadius: 6,
+                  border: 'none', background: '#1a1a1a', color: 'white', cursor: 'pointer',
+                }}>
+                  🔧 {t('tools.fixWithAI')}
+                </button>
+              )}
+              <button onClick={handleCopyError} style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '6px 12px', fontSize: 12, fontWeight: 500, borderRadius: 6,
+                border: '1px solid #e5e7eb', background: 'white',
+                color: copied ? '#16a34a' : '#374151', cursor: 'pointer',
+              }}>
+                {copied ? `✓ ${t('tools.copied')}` : t('tools.copyError')}
+              </button>
+            </div>
           )}
         </div>
       )}

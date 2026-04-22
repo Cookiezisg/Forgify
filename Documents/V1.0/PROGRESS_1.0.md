@@ -1,7 +1,7 @@
 # Forgify 开发进度
 
-**更新于**：2026-04-21  
-**当前状态**：Tier 1-4 全部完成，V1.1 大部分完成（Tab 系统 + 分屏 + 工具增强 + 版本历史）
+**更新于**：2026-04-22  
+**当前状态**：Tier 1-4 全部完成，**V1.1 全部完成**（Tab 系统 + 分屏 + 工具增强 + 版本历史 + 分屏按钮隐藏 + AI 修复闭环）
 
 > **V1.1 迭代**：前端 Tab 架构重构 + Chat+Tool 分屏 + 工具系统增强。
 > 详见 `Documents/V1.1/PRD_1.1.md` 和 `Documents/V1.1/TDD_1.1.md`。
@@ -173,3 +173,6 @@ H2 → H1, I1, I2, I3
 | 2026-04-21 | 工具元数据双向同步：NormalizeCodeAnnotations 确保代码 `# @` 注释与 DB 一致，UI 改名/描述/分类→代码同步更新，@custom/@builtin 标注，system prompt 加 @version |
 | 2026-04-21 | 工具编辑器增强：InlineSelect 分类下拉编辑，版本 badge 可点击进入历史模式，VersionHistoryView（版本列表+Monaco DiffEditor side-by-side），恢复任意历史版本 |
 | 2026-04-21 | ChatToolLayout 双向面板折叠：左侧聊天可折叠（渐变遮罩浮动按钮），右侧工具可折叠（已有），互斥约束（不可同时折叠） |
+| 2026-04-22 | 代码审计 + 优化计划（OPTIMIZATION_PLAN.md）：15 项任务分 5 个 Stage |
+| 2026-04-22 | Stage 1 #1：Chat+Tool / Chat+Workflow 分屏下隐藏对话气泡内的测试/保存按钮（TabContext 暴露 useCurrentLayout hook，ForgeCodeBlock 早返 null；代码块文本由父组件 SyntaxHighlighter 保留） |
+| 2026-04-22 | Stage 1 #2：测试失败"让 AI 修复"一键链路（Pub-Sub 模式：TestTab 广播 forge:fix-requested 事件 → ChatContent 按 conversationId 匹配后 sendMessage 进 Eino 对话管道 → AI 基于完整对话历史生成新代码 → 现有 ForgeMiddleware 自动推送右侧代码面板刷新）。后端零改动。V1.1 验收清单 100% 达成 |

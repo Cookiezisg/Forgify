@@ -68,5 +68,6 @@ export const zhCN = {
     yes: '是', no: '否',
     saveAsTool: '保存为工具', testRun: '测试运行',
     toolName: '名称', toolDesc: '描述', toolCategory: '分类',
+    fixWithAI: '让 AI 修复', copyError: '复制错误', copied: '已复制',
   },
 } as const

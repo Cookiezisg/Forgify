@@ -5,7 +5,7 @@ import { MessageList } from '@/components/chat/MessageList'
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput'
 import { DropZone } from '@/components/chat/DropZone'
 import { CompactBanner } from '@/components/chat/CompactBanner'
-import { useT } from '@/lib/i18n'
+import { useT, useI18n } from '@/lib/i18n'
 
 interface Props {
   conversationId?: string
@@ -19,6 +19,7 @@ interface Props {
  */
 export function ChatContent({ conversationId, hideBinding }: Props) {
   const t = useT()
+  const { locale } = useI18n()
   const [hasKeys, setHasKeys] = useState<boolean | null>(null)
   const [hasModel, setHasModel] = useState<boolean | null>(null)
 
@@ -37,6 +38,25 @@ export function ChatContent({ conversationId, hideBinding }: Props) {
   const handleDropFiles = useCallback((files: File[]) => {
     chatInputRef.current?.addFiles(files)
   }, [])
+
+  // Listen for "Fix with AI" requests from the tool panel (Chat+Tool layout).
+  // The tool panel emits a broadcast event with its conversationId; only the
+  // matching ChatContent instance acts on it and sends a fix prompt to Eino.
+  useEffect(() => {
+    if (!conversationId) return
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { conversationId: string; toolName: string; error: string }
+        | undefined
+      if (!detail || detail.conversationId !== conversationId) return
+      const prompt = locale === 'zh-CN'
+        ? `工具 \`${detail.toolName}\` 运行失败：\n\`\`\`\n${detail.error}\n\`\`\`\n请修复代码。`
+        : `Tool \`${detail.toolName}\` failed:\n\`\`\`\n${detail.error}\n\`\`\`\nPlease fix the code.`
+      sendMessage(prompt)
+    }
+    window.addEventListener('forge:fix-requested', handler)
+    return () => window.removeEventListener('forge:fix-requested', handler)
+  }, [conversationId, sendMessage, locale])
 
   const handleCompact = useCallback(async () => {
     if (!conversationId) return

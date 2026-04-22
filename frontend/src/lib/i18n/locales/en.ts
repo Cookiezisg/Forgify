@@ -67,5 +67,6 @@ export const en: Translation = {
     yes: 'Yes', no: 'No',
     saveAsTool: 'Save as Tool', testRun: 'Test Run',
     toolName: 'Name', toolDesc: 'Description', toolCategory: 'Category',
+    fixWithAI: 'Fix with AI', copyError: 'Copy Error', copied: 'Copied',
   },
 }

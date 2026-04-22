@@ -90,7 +90,7 @@ export function ChatToolLayout({ conversationId, toolId, tabId, chatLabel }: Pro
           onExpand={() => setCollapsedSide('none')}
         />
         <div style={{ flex: 1, borderLeft: '1px solid #e5e7eb', overflow: 'hidden' }}>
-          <ToolMainView toolId={toolId} onDeleted={() => {
+          <ToolMainView toolId={toolId} conversationId={conversationId} onDeleted={() => {
             window.dispatchEvent(new CustomEvent('tool:changed'))
           }} />
         </div>
@@ -185,7 +185,7 @@ export function ChatToolLayout({ conversationId, toolId, tabId, chatLabel }: Pro
           </button>
         </div>
         <div style={{ flex: 1, overflow: 'hidden' }}>
-          <ToolMainView toolId={toolId} onDeleted={() => {
+          <ToolMainView toolId={toolId} conversationId={conversationId} onDeleted={() => {
             window.dispatchEvent(new CustomEvent('tool:changed'))
           }} />
         </div>

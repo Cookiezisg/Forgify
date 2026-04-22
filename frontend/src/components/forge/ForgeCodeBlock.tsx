@@ -3,6 +3,7 @@ import { Play, Save, Loader } from 'lucide-react'
 import { TestParamsModal } from './TestParamsModal'
 import { api } from '@/lib/api'
 import { useT } from '@/lib/i18n'
+import { useCurrentLayout } from '@/context/TabContext'
 
 interface Props {
   toolId?: string           // Set when tool already exists (bound conversation)
@@ -20,9 +21,15 @@ export function ForgeCodeBlock({
   conversationId, onToolSaved,
 }: Props) {
   const t = useT()
+  const layout = useCurrentLayout()
+  const isInSplitView = layout === 'chat-tool' || layout === 'chat-workflow'
   const [showTest, setShowTest] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // In split-view layouts, the tool panel on the right owns test/save actions.
+  // Chat bubble keeps the code block (rendered by parent) but drops the buttons.
+  if (isInSplitView) return null
 
   // If tool already exists (bound conversation), show test button only
   if (toolId) {

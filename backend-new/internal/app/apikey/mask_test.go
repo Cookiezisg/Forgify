@@ -1,7 +1,7 @@
 // mask_test.go — unit tests for MaskKey.
 //
 // mask_test.go — MaskKey 的单元测试。
-package tools
+package apikey
 
 import (
 	"strings"

@@ -1,7 +1,7 @@
 // db_test.go — tests covering Open, Close, Migrate, and schema extras.
 //
 // db_test.go — 覆盖 Open、Close、Migrate 和 schema extras 的测试。
-package gorm
+package db
 
 import (
 	"os"

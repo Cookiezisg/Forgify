@@ -1,15 +1,16 @@
-// Package gorm is the sole gateway to the relational database. It manages
-// connection setup, schema application (Migrate), and escape-hatch SQL
-// for features AutoMigrate can't express (FTS5, triggers, complex CHECKs).
+// Package db is the generic relational-database gateway: connection setup,
+// schema application (Migrate), and escape-hatch SQL for features
+// AutoMigrate can't express (FTS5, triggers, complex CHECKs).
 //
-// Repositories live in this package and implement domain interfaces.
-// No other package imports gorm.io/gorm directly.
+// This package is domain-agnostic. Table-specific repositories live
+// under internal/infra/store/<domain>/ and consume *gorm.DB from here.
 //
-// Package gorm 是对接关系数据库的**唯一**网关。统一管理连接建立、schema
-// 应用（Migrate）、以及 AutoMigrate 表达不了的 SQL（FTS5、触发器、复杂 CHECK）。
+// Package db 是通用的关系数据库网关：连接建立、schema 应用（Migrate）、
+// 以及 AutoMigrate 表达不了的 SQL（FTS5、触发器、复杂 CHECK）。
 //
-// Repository 实现位于本包并实现 domain 接口。禁止其他包直接 import gorm.io/gorm。
-package gorm
+// 本包与 domain 无关。表相关的 Repository 位于 internal/infra/store/<domain>/，
+// 从本包消费 *gorm.DB。
+package db
 
 import (
 	"fmt"

@@ -1,10 +1,16 @@
-// Package tools holds pure, reusable helpers for the apikey domain —
-// things like key masking, validators, formatters. New tools go in their
-// own file here; no package-wide shared state.
+// Package apikey (app layer) owns the Service (CRUD + KeyProvider), the
+// HTTP-tester wiring, and any pure helpers (e.g. MaskKey) that only the
+// service uses.
 //
-// Package tools 存放 apikey domain 的纯工具函数——如 key 掩码、
-// 校验器、格式化器。新工具单独开文件放进来；本包内无共享状态。
-package tools
+// All three apikey packages (domain / app / store) declare `package apikey`;
+// external callers alias at import (e.g. apikeyapp "…/internal/app/apikey").
+//
+// Package apikey（app 层）负责 Service（CRUD + KeyProvider）、HTTP-tester
+// 的装配、以及只给 Service 用的纯工具函数（如 MaskKey）。
+//
+// 三个 apikey 包（domain / app / store）都声明 `package apikey`；
+// 外部调用方 import 时按角色起别名（如 apikeyapp "…/internal/app/apikey"）。
+package apikey
 
 // MaskKey converts a plaintext API key into a display-safe masked form.
 //

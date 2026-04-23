@@ -1,7 +1,7 @@
 // providers_test.go — unit tests for the provider registry.
 //
 // providers_test.go — provider 注册表的单元测试。
-package registry
+package apikey
 
 import (
 	"slices"

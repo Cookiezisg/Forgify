@@ -1,18 +1,17 @@
-// Package registry holds the hardcoded whitelist of supported LLM
-// providers and their metadata (default base URL, test method).
+// providers.go — hardcoded whitelist of supported LLM providers and their
+// metadata (default base URL, test method).
 //
 // Adding a new provider:
 //  1. Add a ProviderMeta entry to the providers map below.
 //  2. If it introduces a new TestMethod, implement the matching branch
 //     in app/apikey.HTTPTester.
 //
-// Package registry 存放支持的 LLM provider 白名单和元数据
-// （默认 base URL、测试方式）。
+// providers.go — 支持的 LLM provider 白名单和元数据（默认 base URL、测试方式）。
 //
 // 新增 provider 步骤：
 //  1. 在下方 providers map 加一条 ProviderMeta。
 //  2. 若引入新的 TestMethod，需在 app/apikey.HTTPTester 实现对应分支。
-package registry
+package apikey
 
 // TestMethod enumerates the HTTP pattern used to test connectivity.
 // Each value maps to a specific branch in app/apikey.HTTPTester.

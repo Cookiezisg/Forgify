@@ -21,7 +21,7 @@ import (
 
 	"go.uber.org/zap"
 
-	gormdb "github.com/sunweilin/forgify/backend/internal/infra/gorm"
+	"github.com/sunweilin/forgify/backend/internal/infra/db"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/router"
 )
@@ -39,23 +39,23 @@ func main() {
 	}
 	defer log.Sync() //nolint:errcheck // flush on exit; error is noise
 
-	db, err := gormdb.Open(gormdb.Config{DataDir: *dataDir})
+	gdb, err := db.Open(db.Config{DataDir: *dataDir})
 	if err != nil {
 		log.Error("open db", zap.Error(err))
 		os.Exit(1)
 	}
 	defer func() {
-		if err := gormdb.Close(db); err != nil {
+		if err := db.Close(gdb); err != nil {
 			log.Warn("close db", zap.Error(err))
 		}
 	}()
 
 	// Phase 2 will pass domain models here, e.g.:
-	//   gormdb.Migrate(db, &apikey.APIKey{}, &tool.Tool{}, ...)
+	//   db.Migrate(gdb, &apikey.APIKey{}, &tool.Tool{}, ...)
 	//
 	// Phase 2 会传入 domain model，例如：
-	//   gormdb.Migrate(db, &apikey.APIKey{}, &tool.Tool{}, ...)
-	if err := gormdb.Migrate(db); err != nil {
+	//   db.Migrate(gdb, &apikey.APIKey{}, &tool.Tool{}, ...)
+	if err := db.Migrate(gdb); err != nil {
 		log.Error("migrate db", zap.Error(err))
 		os.Exit(1)
 	}

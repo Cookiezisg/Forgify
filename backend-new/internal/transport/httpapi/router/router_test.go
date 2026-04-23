@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
+
+	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/middleware"
 )
 
 // newTestDeps returns a Deps with a no-op logger so tests are quiet.
@@ -110,5 +112,30 @@ func TestRouter_CORSHeaderPresentOnHealthRequest(t *testing.T) {
 	}
 	if rec.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
 		t.Errorf("missing Allow-Origin on passed-through request")
+	}
+}
+
+func TestRouter_UserIDInjectedIntoHandlerContext(t *testing.T) {
+	// Handlers reached via applyChain must see DefaultLocalUserID in ctx.
+	// This guards the wiring: if someone removes InjectUserID from the
+	// chain, this test fails even though all existing /health tests pass.
+	//
+	// 通过 applyChain 到达的 handler 必须在 ctx 中看到 DefaultLocalUserID。
+	// 这条测试守护接线：如果有人把 InjectUserID 从链里撤掉，即使 /health
+	// 的测试都通过，这条仍会失败。
+	var gotID string
+	var gotOK bool
+	testHandler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotID, gotOK = middleware.UserIDFromContext(r.Context())
+	})
+
+	h := applyChain(testHandler, newTestDeps())
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/anything", nil))
+
+	if !gotOK {
+		t.Fatalf("UserIDFromContext ok flag: got false — InjectUserID not wired")
+	}
+	if gotID != middleware.DefaultLocalUserID {
+		t.Errorf("userID: got %q, want %q", gotID, middleware.DefaultLocalUserID)
 	}
 }

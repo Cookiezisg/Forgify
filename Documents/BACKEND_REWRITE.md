@@ -12,7 +12,7 @@
 | Phase | 内容 | 工时 | 状态 | 完成日期 |
 |---|---|---|---|---|
 | **Phase 0** | 骨架：go mod + main.go + 目录结构 + /health | 4h | ✅ 完成 | 2026-04-22 |
-| **Phase 1** | Infra 基础：GORM / logger / crypto / events / middleware | 6h | 🔄 进行中（5/7） | — |
+| **Phase 1** | Infra 基础：GORM / logger / crypto / events / middleware | 6h | ✅ 完成（7/7） | 2026-04-23 |
 | **Phase 2** | Domain + Infra 实现（6 个域，按复杂度） | 15h | ⬜ 未开始 | — |
 | **Phase 3** | 集成和数据迁移 | 4h | ⬜ 未开始 | — |
 | **Phase 4** | 完整测试（契约、端到端、性能） | 6h | ⬜ 未开始 | — |
@@ -41,6 +41,8 @@
 | 2026-04-23 | Phase 1 Step 4e 完成：`router/` 子包（router.go + deps.go + router_test.go）+ `handlers/health.go`（Register pattern 模版），4 个集成测试验证端到端中间件链 |
 | 2026-04-23 | Phase 1 地基完成 4/7：所有中间件 + 路由总装 + Handler pattern 就位，37 个测试零失败。`/api/v1/health` 与 `/api/v1/nonexistent` 均走 envelope，CORS preflight 正确响应，访问日志按预期输出 |
 | 2026-04-23 | Phase 1 Step 5 完成：crypto 接口化（`domain/crypto/Encryptor`）+ AES-GCM 实现（`infra/crypto/aesgcm.go`），老代码 4 个安全问题全部修复（fallback 密钥灾难、decrypt 返 nil nil bug、无版本标识、shell 命令脆弱），密文加 `v1:` 前缀为未来 KMS 信封加密留兼容位。14 个新测试，累计 51 个 |
+| 2026-04-23 | Phase 1 Step 6 完成：`infra/gorm/`（db.go / migrate.go / schema_extras.go）。GORM 连接集中管理（WAL、FK 约束强制开、PrepareStmt 缓存、UTC 时间），`Migrate` 接 domain 类型（Phase 2 用）。决定 AutoMigrate + schema extras 模式（无数据迁移），4 个 schema 业务问题（asset polymorphism / pending 独立表 / version 语义 / 历史上限）推迟到 Phase 2 做 tool domain 时讨论。11 个新测试，累计 62 个 |
+| 2026-04-23 | Phase 1 Step 7 完成：`domain/events/` 接口 + `infra/events/memory/` 内存实现。强类型事件（禁止 `map[string]any`）、扇出 pub-sub、buffer 满非阻塞丢弃、ctx 自动 cancel、sync.Once 幂等 cancel。10 个新测试含 race 并发测试，累计 **72 个测试**。**Phase 1 地基 7/7 全部完成** |
 
 ---
 

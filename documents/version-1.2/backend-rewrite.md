@@ -4,7 +4,7 @@
 **升级于**：2026-04-23（路线图升级为完整的 Agentic Workflow Platform）
 **分支**：`backend-iteration`
 **状态**：Phase 1 完成（地基），Phase 2 待启动（基础对话能力）
-**预估总工时**：~67h（地基 10h ✅ + 产品能力 57h）
+**预估总工时**：~68h（地基 10h ✅ + 产品能力 58h）
 
 ---
 
@@ -21,7 +21,7 @@
 
 | Phase | 主题 | 工时 | 状态 | 交付价值 |
 |---|---|---|---|---|
-| **Phase 2** | 基础对话能力：apikey + conversation + 简版 chat | ~10h | ⬜ 未开始 | 像 ChatGPT 客户端能用 |
+| **Phase 2** | 基础对话能力：apikey + model + conversation + 简版 chat | ~11h | ⬜ 未开始 | 像 ChatGPT 客户端能用 |
 | **Phase 3** | 工具锻造能力：forge + attachment + tool + chat 加 tool calling | ~12h | ⬜ 未开始 | Forgify V1.0 体验完整（聊天造工具）|
 | **Phase 4** | 工作流能力：workflow + flowrun + 节点系统 + scheduler | ~20h | ⬜ 未开始 | 桌面版 Coze（拖拽编排 + 定时跑）|
 | **Phase 5** | 智能化：knowledge + intent + mcp + skill + 完整智能 chat | ~15h | ⬜ 未开始 | 完整 Agent 平台（一句话生成工作流）|
@@ -57,6 +57,7 @@
 | 2026-04-23 | 加 auth middleware（`InjectUserID`）：硬编码 `DefaultLocalUserID = "local-user"`，Phase 2 多租户就绪。5 单测，累计 77 个 |
 | 2026-04-23 | 加 locale middleware（`InjectLocale`）+ 跨层共享包 `internal/pkg/reqctx/`：解析 Accept-Language（zh-CN/en）注入 ctx，供 LLM 相关代码读。`reqctx` 包立 `pkg/` 约束（只 stdlib、无状态、单一职责）。UserID 逻辑从 middleware 迁到 reqctx 统一管理。新增 28 个测试 |
 | 2026-04-23 | **全量注释瘦身**：15 个生产文件共砍 ~420 行冗余注释，保留双语 godoc 但移除架构哲学、重复说明、跑题猜测。S11 规范扩展为"双语 + 节制"完整规则 |
+| 2026-04-23 | **Phase 2 路线图修正**：新增 `model` domain（极简策略层"场景 → provider/model"）。起因：推演 chat 端到端调用链时发现"provider 从哪来"没有归属——apikey 管凭证、chat 管编排，都不该决策 provider。立第 5 条设计原则"端到端推演先行"，每个 domain 开工前必须走完整数据流 |
 
 ---
 
@@ -144,27 +145,57 @@ Forgify 不只是"对话 + 造工具"——目标是 **Agentic Workflow Platform
 2. **依赖严格自下而上** —— 每个 Phase 只依赖前面已完成的 Phase
 3. **复杂度阶梯式增长** —— 难度从基础 CRUD → 复杂 CRUD → 编排 → 智能
 4. **前端暂不跟进** —— 后端用 curl 测试为主，前端在所有 Phase 完成后统一适配
+5. **端到端推演先行** —— 每个 domain 开工前**必须**先走一遍"用户一个请求从 HTTP 到最终调用"的完整数据流，列出所有跨 domain 依赖。避免设计看起来完整、实现时才发现"缺一个 domain"
+
+### 端到端推演模板
+
+每个 domain 设计文档里必须有一节"**完整调用链**"，格式如下：
+
+```
+触发源（HTTP/定时/事件）
+  → transport 层：哪个 handler
+    → app 层：哪个 service 方法
+        → 调谁：model / apikey / 其他 domain，每一次 cross-domain 调用都要列
+        → 用什么：从 ctx 读什么、从哪个 repo 读什么
+      → infra 层：最终落到哪里（DB / 外部 API / 沙箱）
+  → 响应路径：成功 / 失败分别怎么返
+```
+
+**不走一遍这个推演，不开工**。
 
 ---
 
-### 🥚 Phase 2：基础对话能力（~10h）
+### 🥚 Phase 2：基础对话能力（~11h）
 
-**目标**：用户能保存 API Key、新建对话、发消息、看 LLM 流式返回
+**目标**：用户能保存 API Key、选主对话模型、新建对话、发消息、看 LLM 流式返回
 
 **做哪些 domain**：
 1. **apikey**（~2h）—— 最简单，过整条 Pattern：domain interface → infra GORM 实现 → app service → handler → router 注册
-2. **conversation**（~3h）—— 对话 + 消息 CRUD（含分页）
-3. **chat 极简版**（~5h）—— 纯流式 LLM，**不带工具调用**（保留给 Phase 3）
+2. **model**（~1h）—— 极简版"场景 → provider/model"策略层；Phase 2 只支持 `ScenarioChat` 一个场景（用户只配主对话模型）
+3. **conversation**（~3h）—— 对话 + 消息 CRUD（含分页）
+4. **chat 极简版**（~5h）—— 纯流式 LLM，**不带工具调用**（保留给 Phase 3）
 
 **新增 domain 目录**：
 ```
 domain/apikey/        ← 已有目录，填内容
+domain/model/         ← 🆕 新增
 domain/conversation/  ← 已有目录，填内容
 domain/chat/          ← 已有目录，填内容
 ```
 
+**关键调用链（端到端验证过）**：
+```
+handler.SendMessage(req)
+  → chat.Send(ctx, msg)
+      → model.Pick(ctx, ScenarioChat)         → (provider, modelID)
+      → apikey.ResolveCredentials(ctx, provider) → (key, baseURL)
+      → reqctx.GetLocale(ctx)                  → "zh-CN" 或 "en"
+      → eino.Stream(key, baseURL, model, prompt)
+```
+
 **完成后能用 curl 做什么**：
 - `POST /api/v1/api-keys` 加 Key
+- `PUT /api/v1/model-config` 设主对话模型
 - `POST /api/v1/conversations` 新建对话
 - `POST /api/v1/chat/messages` + `GET /api/v1/events?conversationId=xxx` 流式聊天
 
@@ -273,12 +304,12 @@ domain/skill/        ← 新增
 | Phase | 主题 | 工时 | 完成后产品形态 |
 |---|---|---|---|
 | 0-1 | 地基（已完成）| 10h | 基础设施全就位 |
-| 2 | 基础对话 | 10h | ChatGPT 客户端 |
+| 2 | 基础对话 | 11h | ChatGPT 客户端 |
 | 3 | 工具锻造 | 12h | Forgify V1.0 体验 |
 | 4 | 工作流 | 20h | 桌面版 Coze |
 | 5 | 智能 + 知识库 + MCP | 15h | 完整 Agent 平台 |
 | 6 | 切换 | 2h | 老后端下线 |
-| **合计** | | **~69h** | 完整愿景 |
+| **合计** | | **~70h** | 完整愿景 |
 
 ---
 

@@ -14,7 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/middleware"
+	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // newTestDeps returns a Deps with a no-op logger so tests are quiet.
@@ -117,25 +117,45 @@ func TestRouter_CORSHeaderPresentOnHealthRequest(t *testing.T) {
 
 func TestRouter_UserIDInjectedIntoHandlerContext(t *testing.T) {
 	// Handlers reached via applyChain must see DefaultLocalUserID in ctx.
-	// This guards the wiring: if someone removes InjectUserID from the
-	// chain, this test fails even though all existing /health tests pass.
+	// If someone removes InjectUserID from the chain, this test fails
+	// even though all existing /health tests pass.
 	//
-	// 通过 applyChain 到达的 handler 必须在 ctx 中看到 DefaultLocalUserID。
-	// 这条测试守护接线：如果有人把 InjectUserID 从链里撤掉，即使 /health
-	// 的测试都通过，这条仍会失败。
+	// 通过 applyChain 到达的 handler 必须能从 ctx 读出 DefaultLocalUserID。
+	// 如果有人从链里撤掉 InjectUserID，即使 /health 测试都通过，这条也会失败。
 	var gotID string
 	var gotOK bool
 	testHandler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		gotID, gotOK = middleware.UserIDFromContext(r.Context())
+		gotID, gotOK = reqctx.GetUserID(r.Context())
 	})
 
 	h := applyChain(testHandler, newTestDeps())
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/anything", nil))
 
 	if !gotOK {
-		t.Fatalf("UserIDFromContext ok flag: got false — InjectUserID not wired")
+		t.Fatalf("GetUserID ok: got false — InjectUserID not wired")
 	}
-	if gotID != middleware.DefaultLocalUserID {
-		t.Errorf("userID: got %q, want %q", gotID, middleware.DefaultLocalUserID)
+	if gotID != reqctx.DefaultLocalUserID {
+		t.Errorf("userID: got %q, want %q", gotID, reqctx.DefaultLocalUserID)
+	}
+}
+
+func TestRouter_LocaleInjectedIntoHandlerContext(t *testing.T) {
+	// Handlers reached via applyChain must see a parsed Locale in ctx.
+	// Guards wiring: removing InjectLocale from the chain fails this.
+	//
+	// 通过 applyChain 到达的 handler 必须能从 ctx 读出解析好的 Locale。
+	// 守护接线：从链里撤掉 InjectLocale 会让本测试失败。
+	var gotLocale reqctx.Locale
+	testHandler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotLocale = reqctx.GetLocale(r.Context())
+	})
+
+	h := applyChain(testHandler, newTestDeps())
+	req := httptest.NewRequest("GET", "/anything", nil)
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if gotLocale != reqctx.LocaleEn {
+		t.Errorf("locale: got %q, want %q", gotLocale, reqctx.LocaleEn)
 	}
 }

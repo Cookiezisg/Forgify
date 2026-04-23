@@ -54,6 +54,9 @@
 | 2026-04-23 | Phase 1 Step 7 完成：`domain/events/` 接口 + `infra/events/memory/` 内存实现。强类型事件（禁止 `map[string]any`）、扇出 pub-sub、buffer 满非阻塞丢弃、ctx 自动 cancel、sync.Once 幂等 cancel。10 个新测试含 race 并发测试，累计 **72 个测试**。**Phase 1 地基 7/7 全部完成** |
 | 2026-04-23 | **路线图升级**：基于"Agentic Workflow Platform"愿景重新规划 Phase 2-6。原计划只是 V1.0 重写，新计划升级为完整产品（含 workflow / knowledge / MCP / 智能编排）。引入 6 个新 domain（workflow / flowrun / scheduler / knowledge / mcp / skill / intent），目标对标 Dify+Coze 的桌面版本。详见下方"产品愿景"和"Phase 2-6 详细路线图"章节 |
 | 2026-04-23 | 文档目录重组：`Documents/` → `documents/`（小写），按版本分目录 `version-1.0` / `1.1` / `1.2`。`BACKEND_REWRITE.md` 落在 `version-1.2/` 下。文件名统一 kebab-case |
+| 2026-04-23 | 加 auth middleware（`InjectUserID`）：硬编码 `DefaultLocalUserID = "local-user"`，Phase 2 多租户就绪。5 单测，累计 77 个 |
+| 2026-04-23 | 加 locale middleware（`InjectLocale`）+ 跨层共享包 `internal/pkg/reqctx/`：解析 Accept-Language（zh-CN/en）注入 ctx，供 LLM 相关代码读。`reqctx` 包立 `pkg/` 约束（只 stdlib、无状态、单一职责）。UserID 逻辑从 middleware 迁到 reqctx 统一管理。新增 28 个测试 |
+| 2026-04-23 | **全量注释瘦身**：15 个生产文件共砍 ~420 行冗余注释，保留双语 godoc 但移除架构哲学、重复说明、跑题猜测。S11 规范扩展为"双语 + 节制"完整规则 |
 
 ---
 
@@ -336,30 +339,71 @@ domain/skill/        ← 新增
 - **S8 SQL 只在 `infra/gorm/`**：其他层出现 SQL 都是违规
 - **S9 context 传播**：每个跨层调用传 `ctx`
 - **S10 结构化日志**：用 **zap**，生产 JSON / 开发带彩色
-- **S11 双语注释**：从 `backend-new/` 开始，所有注释（包/函数/类型/内联）必须**英文 + 中文**双语。格式：英文块在前，空行，中文块在后。示例见下方
+- **S11 注释规范**：详见下方「S11 注释规范（双语 + 节制）」章节
 
-**S11 注释格式范例**：
+---
+
+### S11 注释规范（双语 + 节制）
+
+从 `backend-new/` 开始，所有代码注释必须遵守以下规则。
+
+#### 1. 双语格式
+- **包/类型/函数** 的 godoc 注释必须**英文在前、空行、中文在后**
+- **英文块**优先简洁，面向国际/AI 搜索友好
+- **中文块**不是机械翻译，可以更贴业务上下文
+
+**格式示例**：
 
 ```go
-// Package logger provides the project-wide zap logger factory.
-// Logger is injected via DI from cmd/server/main.go.
+// InjectUserID is the Phase 2 simplified auth middleware: stamps
+// DefaultLocalUserID into ctx. Will be rewritten to parse real auth
+// credentials (JWT / session) later.
 //
-// Package logger 提供项目级 zap logger 工厂。
-// Logger 通过 DI 从 cmd/server/main.go 注入。
-package logger
-
-// New builds a zap logger. dev=true selects the colored console encoder;
-// dev=false selects production JSON.
-//
-// New 构建 zap logger。dev=true 使用彩色控制台编码器；dev=false 使用生产 JSON。
-func New(dev bool) (*zap.Logger, error) {
-    // WriteTimeout intentionally 0: SSE streams may run for minutes.
-    // WriteTimeout 特意设为 0：SSE 流可能持续几分钟。
-    ...
-}
+// InjectUserID 是 Phase 2 的简化 auth 中间件：把 DefaultLocalUserID
+// 塞入 ctx。未来重写为解析真实凭证（JWT / session）。
+func InjectUserID(next http.Handler) http.Handler { ... }
 ```
 
-**为什么 S11**：团队读写效率最大化——英文保持代码专业性和搜索友好，中文降低理解成本，尤其对架构决策/业务规则注释。
+#### 2. 什么必须写（SHOULD have）
+- ✅ **Package doc**（2–5 行）：包的职责，一句话能讲清
+- ✅ **导出符号的 godoc**：类型、函数、常量、变量（Go 惯例 + 工具链要求）
+- ✅ **Non-obvious 的 WHY**：代码"做什么"显而易见时，只有"为什么这么做"值得写
+- ✅ **陷阱/安全警告**：如 "不得返回 fallback key，否则全用户共享"
+- ✅ **行为契约**：如 "best-effort delivery，slow subscribers 丢事件"
+- ✅ **回归守卫测试**的意图注释（可选，但推荐）
+
+#### 3. 什么禁止写（MUST NOT）
+- ❌ **架构哲学**：如"为什么放这里而不放那里"——搬到本文档
+- ❌ **团队约定/规范解释**：如"S11 要求我们..."——搬到本文档
+- ❌ **历史决策过程**：如"早期我们用 X，后来改用 Y"——放 git log / PR 描述
+- ❌ **对代码的机械复述**：如 `// Set name sets the name`
+- ❌ **跑题猜测**：如"未来可能会..."（除非是真的 TODO）
+- ❌ **冗余重复**：同一段英文再写一遍中文相同意思——说明内容本身可以砍
+
+#### 4. 长度指南
+- Package doc：**2–5 行**
+- 函数/类型 godoc：**1–5 行**，超过 10 行要怀疑
+- 内联注释：**单行优先**，非平凡的业务规则/陷阱可以 2–3 行
+
+#### 5. 测试文件放宽要求
+测试文件里"为什么测这个"往往需要解释，不限长度。但也要双语。
+
+#### 6. 内联注释的双语写法
+**非平凡**内联注释才双语：
+
+```go
+// WriteTimeout intentionally 0: SSE streams may run for minutes.
+// WriteTimeout 特意设为 0：SSE 流可能持续几分钟。
+IdleTimeout: 60 * time.Second,
+```
+
+**平凡**的（如 `// loop over items`）可以单英文或省略。
+
+#### 7. 为什么这样规定
+- **英文保持专业性**：grep 友好、AI-assist 友好、行业惯例
+- **中文降低理解门槛**：团队中文母语，业务术语中文更准
+- **节制防止注释腐烂**：过度注释会过时、会误导、会淹没真正重要的信息
+- **架构决策归档**：Why-level 的决策放文档，不是代码注释——文档能持续更新，注释会被遗忘
 
 ---
 

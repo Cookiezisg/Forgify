@@ -1,25 +1,14 @@
-// Package gorm provides the project's sole gateway to a relational database.
+// Package gorm is the sole gateway to the relational database. It manages
+// connection setup, schema application (Migrate), and escape-hatch SQL
+// for features AutoMigrate can't express (FTS5, triggers, complex CHECKs).
 //
-// It centralizes three concerns:
-//   - Connection setup (Open / Close) with SQLite tuned for our workload.
-//   - Schema application (Migrate) driven by domain types' GORM tags.
-//   - Escape-hatch SQL (schema extras) for features AutoMigrate can't express
-//     — FTS5 virtual tables, triggers, complex CHECKs.
+// Repositories live in this package and implement domain interfaces.
+// No other package imports gorm.io/gorm directly.
 //
-// No other package in the codebase is allowed to import `gorm.io/gorm`
-// directly (S8). Repositories live in infra/gorm alongside this file and
-// implement interfaces declared in domain/.
+// Package gorm 是对接关系数据库的**唯一**网关。统一管理连接建立、schema
+// 应用（Migrate）、以及 AutoMigrate 表达不了的 SQL（FTS5、触发器、复杂 CHECK）。
 //
-// Package gorm 是项目**唯一**对接关系数据库的网关。
-//
-// 统一管三件事：
-//   - 连接建立（Open / Close），SQLite 按我们的负载调优。
-//   - 按 domain 类型的 GORM tag 应用 schema（Migrate）。
-//   - AutoMigrate 表达不了的 SQL（schema extras），如 FTS5 虚拟表、
-//     触发器、复杂 CHECK。
-//
-// 本项目**禁止**其他包直接 import `gorm.io/gorm`（标准 S8）。Repository
-// 实现位于本目录下，实现 domain/ 中声明的接口。
+// Repository 实现位于本包并实现 domain 接口。禁止其他包直接 import gorm.io/gorm。
 package gorm
 
 import (
@@ -32,33 +21,26 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 )
 
-// Config controls how the database is opened. Zero values are safe defaults
-// suitable for tests (in-memory, quiet logger).
+// Config controls how the database is opened. Zero values are test-safe
+// defaults (in-memory, quiet logger).
 //
-// Config 控制数据库的打开方式。零值为安全默认（内存 DB、安静 logger），
-// 适合测试。
+// Config 控制数据库的打开方式。零值为测试安全默认（内存 DB、静音 logger）。
 type Config struct {
-	// DataDir is the directory holding forgify.db. Empty string → in-memory
-	// database (for tests). Non-empty → the directory is created if missing
-	// and "{DataDir}/forgify.db" is opened.
+	// DataDir holds forgify.db. Empty = in-memory (for tests).
 	//
-	// DataDir 是存放 forgify.db 的目录。空字符串 → 内存数据库（测试用）。
-	// 非空 → 目录不存在时自动创建，打开 "{DataDir}/forgify.db"。
+	// DataDir 存放 forgify.db。空 = 内存数据库（测试用）。
 	DataDir string
 
-	// LogLevel controls GORM's internal SQL logger. Use Silent in tests,
-	// Warn in production, Info when debugging.
+	// LogLevel controls GORM's internal SQL logger.
 	//
-	// LogLevel 控制 GORM 内部 SQL 日志。测试用 Silent，生产用 Warn，调试用 Info。
+	// LogLevel 控制 GORM 内部 SQL 日志。
 	LogLevel gormlogger.LogLevel
 }
 
-// Open establishes a SQLite connection with WAL, foreign keys, and prepared
-// statement caching all enabled. Returns an error if the data directory
-// can't be created or the connection can't be established.
+// Open establishes a SQLite connection with WAL, FK, and prepared
+// statement caching all enabled.
 //
-// Open 打开一个 SQLite 连接，启用 WAL 日志、外键约束、prepared statement 缓存。
-// 数据目录创建失败或连接建立失败时返回错误。
+// Open 打开 SQLite 连接，启用 WAL、FK、prepared statement 缓存。
 func Open(cfg Config) (*gorm.DB, error) {
 	dsn, err := buildDSN(cfg.DataDir)
 	if err != nil {
@@ -71,32 +53,16 @@ func Open(cfg Config) (*gorm.DB, error) {
 	}
 
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		// NowFunc uses UTC everywhere. Naive local time across timezones is
-		// a classic source of off-by-hours bugs; UTC at rest + convert at
-		// transport is the safe pattern.
-		//
-		// NowFunc 全用 UTC。跨时区的本地时间是经典的"差几小时"bug 源；
-		// 存 UTC，展示时再转是安全模式。
-		NowFunc:  func() time.Time { return time.Now().UTC() },
-		Logger:   gormlogger.Default.LogMode(logLevel),
-		// PrepareStmt caches prepared statements for every unique SQL text,
-		// gaining both speed and defense against SQL injection (can't
-		// accidentally concatenate into a statement text at runtime).
-		//
-		// PrepareStmt 缓存每条独特 SQL 文本的 prepared statement，既提升
-		// 性能也防 SQL 注入（无法在运行时意外拼接 SQL 字符串）。
+		// UTC at rest; convert at the transport boundary.
+		// 存 UTC，传输边界再转换。
+		NowFunc:     func() time.Time { return time.Now().UTC() },
+		Logger:      gormlogger.Default.LogMode(logLevel),
 		PrepareStmt: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gorm open: %w", err)
 	}
 
-	// Extra runtime PRAGMAs that SQLite connection string already sets, but
-	// we verify by querying them back. Belt-and-suspenders for safety-critical
-	// settings like foreign_keys.
-	//
-	// 连接字符串已经设置过的 PRAGMA，这里查询回来校验。对 foreign_keys 这类
-	// 关键安全配置做双重保险。
 	if err := verifyPragmas(db); err != nil {
 		_ = Close(db)
 		return nil, err
@@ -105,9 +71,9 @@ func Open(cfg Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-// Close releases the underlying sql.DB connection pool. Safe to call on nil.
+// Close releases the connection pool. Safe on nil.
 //
-// Close 释放底层 sql.DB 连接池。对 nil 调用安全。
+// Close 释放连接池。对 nil 调用安全。
 func Close(db *gorm.DB) error {
 	if db == nil {
 		return nil
@@ -119,17 +85,11 @@ func Close(db *gorm.DB) error {
 	return sqlDB.Close()
 }
 
-// buildDSN constructs the SQLite connection string. All tuning PRAGMAs are
-// passed as query parameters so they're applied during handshake, before
-// any application query runs.
-//
-// buildDSN 构造 SQLite 连接字符串。所有调优 PRAGMA 作为查询参数传入，
-// 确保在握手阶段生效，早于任何应用层查询。
 func buildDSN(dataDir string) (string, error) {
-	params := "_journal_mode=WAL" + // Write-ahead logging: better concurrent reads.
-		"&_busy_timeout=5000" + // Wait up to 5s on lock contention before erroring.
-		"&_foreign_keys=on" + // Enforce FK constraints (SQLite default is off!).
-		"&_synchronous=NORMAL" // Balance between durability and speed.
+	params := "_journal_mode=WAL" +
+		"&_busy_timeout=5000" +
+		"&_foreign_keys=on" +
+		"&_synchronous=NORMAL"
 
 	if dataDir == "" {
 		return ":memory:?" + params, nil
@@ -140,13 +100,10 @@ func buildDSN(dataDir string) (string, error) {
 	return fmt.Sprintf("%s/forgify.db?%s", dataDir, params), nil
 }
 
-// verifyPragmas queries back critical PRAGMAs to make sure our DSN took
-// effect. An unexpected value means either the driver ignored our settings
-// or someone modified them before we looked — either way, fail loudly now
-// rather than corrupt data later.
+// verifyPragmas double-checks critical PRAGMAs took effect. Belt-and-suspenders
+// for safety-critical settings like foreign_keys.
 //
-// verifyPragmas 查询回关键 PRAGMA 以确认 DSN 生效。值不符预期说明驱动忽略了
-// 设置或有人提前改动——任一情况立即失败，强过以后数据损坏。
+// verifyPragmas 二次确认关键 PRAGMA 生效。对 foreign_keys 这类安全关键项做双保险。
 func verifyPragmas(db *gorm.DB) error {
 	var fk int
 	if err := db.Raw("PRAGMA foreign_keys").Scan(&fk).Error; err != nil {

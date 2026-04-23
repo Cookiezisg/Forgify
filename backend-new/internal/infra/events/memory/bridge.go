@@ -1,17 +1,9 @@
 // Package memory provides an in-process implementation of
-// domain/events.Bridge. Events are fanned out through buffered channels
-// with non-blocking sends — a slow subscriber sees events dropped, not the
-// whole backend stall.
-//
-// Swappable: a future infra/events/redis package will implement the same
-// domain/events.Bridge interface for multi-instance deployments (SaaS).
+// domain/events.Bridge. Events fan out through buffered channels with
+// non-blocking sends — slow subscribers drop events, never stall the backend.
 //
 // Package memory 提供 domain/events.Bridge 的进程内实现。事件通过带
-// 缓冲的 channel 扇出，发送非阻塞——慢订阅者会丢事件，但**不会**拖慢
-// 整个后端。
-//
-// 可替换：未来的 infra/events/redis 包会实现相同的 domain/events.Bridge
-// 接口，用于多实例部署（SaaS）。
+// 缓冲的 channel 扇出，发送非阻塞——慢订阅者丢事件，不会拖慢后端。
 package memory
 
 import (
@@ -23,14 +15,11 @@ import (
 	"github.com/sunweilin/forgify/backend/internal/domain/events"
 )
 
-// defaultBufferSize caps the number of unread events per subscriber. The
-// value is tuned for SSE: during a streaming LLM reply a subscriber can
-// lag 64 tokens behind before we start dropping — generous enough for
-// jittery browser connections, tight enough to catch stuck clients.
+// defaultBufferSize caps the number of unread events per subscriber.
+// Tuned for SSE: ~64 LLM tokens of slack before we drop.
 //
-// defaultBufferSize 限制单个订阅者的未读事件数。按 SSE 场景调校：
-// LLM 流式回复中，订阅者可以落后 64 个 token 才开始丢——对网络抖动
-// 的浏览器连接够宽松，对卡死的客户端又够紧。
+// defaultBufferSize 限制单订阅者的未读事件数。
+// 按 SSE 场景调校：约 64 个 LLM token 的余量。
 const defaultBufferSize = 64
 
 // Bridge is a thread-safe, in-process fan-out event bus.
@@ -40,12 +29,9 @@ type Bridge struct {
 	log *zap.Logger
 
 	mu   sync.RWMutex
-	subs map[string][]*subscription // filterKey → live subscriptions
+	subs map[string][]*subscription
 }
 
-// subscription is one live Subscribe call's private state.
-//
-// subscription 是一次 Subscribe 调用产生的私有状态。
 type subscription struct {
 	ch     chan events.Event
 	done   chan struct{}
@@ -53,6 +39,7 @@ type subscription struct {
 }
 
 // NewBridge constructs an empty Bridge.
+//
 // NewBridge 构造一个空的 Bridge。
 func NewBridge(log *zap.Logger) *Bridge {
 	return &Bridge{
@@ -61,12 +48,11 @@ func NewBridge(log *zap.Logger) *Bridge {
 	}
 }
 
-// Publish implements events.Bridge. Takes a snapshot of subscribers under
-// an RLock, then sends without holding the lock so slow sends can't block
-// new Subscribe calls.
+// Publish snapshots subscribers under RLock, then sends without the lock
+// so slow sends don't block new Subscribe calls.
 //
-// Publish 实现 events.Bridge。在 RLock 下做订阅者快照，然后**释放锁**
-// 再发送——这样慢的发送不会阻塞新的 Subscribe。
+// Publish 在 RLock 下快照订阅者列表，然后**释放锁**再发送——
+// 避免慢发送阻塞新的 Subscribe。
 func (b *Bridge) Publish(_ context.Context, key string, e events.Event) {
 	b.mu.RLock()
 	snapshot := make([]*subscription, len(b.subs[key]))
@@ -76,13 +62,10 @@ func (b *Bridge) Publish(_ context.Context, key string, e events.Event) {
 	for _, s := range snapshot {
 		select {
 		case <-s.done:
-			// Subscriber already cancelled — skip.
-			// 订阅者已取消——跳过。
+			// subscriber cancelled / 订阅者已取消
 		case s.ch <- e:
-			// Delivered. / 已投递。
+			// delivered / 已投递
 		default:
-			// Buffer full — drop, log, keep flowing.
-			// 缓冲满——丢弃、记日志、继续。
 			b.log.Warn("dropping event: subscriber buffer full",
 				zap.String("event", e.EventName()),
 				zap.String("key", key),
@@ -91,12 +74,11 @@ func (b *Bridge) Publish(_ context.Context, key string, e events.Event) {
 	}
 }
 
-// Subscribe implements events.Bridge. Registers a new subscription,
-// returns its receive channel and a cancel function. The cancel function
-// is idempotent and also runs automatically when ctx is done.
+// Subscribe registers a new subscription and returns its channel + an
+// idempotent cancel func. cancel also runs automatically on ctx.Done().
 //
-// Subscribe 实现 events.Bridge。注册新订阅，返回接收 channel 和取消
-// 函数。取消函数幂等，ctx 结束时也自动触发。
+// Subscribe 注册新订阅，返回 channel 和幂等的取消函数。ctx.Done() 时
+// cancel 自动触发。
 func (b *Bridge) Subscribe(ctx context.Context, key string) (<-chan events.Event, func()) {
 	sub := &subscription{
 		ch:   make(chan events.Event, defaultBufferSize),
@@ -114,12 +96,6 @@ func (b *Bridge) Subscribe(ctx context.Context, key string) (<-chan events.Event
 		})
 	}
 
-	// Auto-cancel when ctx is done. Runs in a goroutine so Subscribe can
-	// return immediately. If cancel() was called manually first, sub.done
-	// is already closed and this goroutine exits promptly.
-	//
-	// ctx 结束时自动取消。用 goroutine 运行，这样 Subscribe 可以立即返回。
-	// 如果 cancel() 已经被手动调用，sub.done 已关闭，本 goroutine 立即退出。
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -131,10 +107,6 @@ func (b *Bridge) Subscribe(ctx context.Context, key string) (<-chan events.Event
 	return sub.ch, cancel
 }
 
-// removeSub deletes sub from the bridge's index under the given key.
-// No-op if not present (idempotent).
-//
-// removeSub 从 bridge 索引中删除指定 key 下的 sub。不存在时为 no-op（幂等）。
 func (b *Bridge) removeSub(key string, target *subscription) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -151,6 +123,6 @@ func (b *Bridge) removeSub(key string, target *subscription) {
 	}
 }
 
-// Ensure *Bridge satisfies the domain interface at compile time.
-// 编译期确认 *Bridge 满足 domain 接口。
+// Compile-time check that *Bridge satisfies events.Bridge.
+// 编译期确认 *Bridge 满足 events.Bridge。
 var _ events.Bridge = (*Bridge)(nil)

@@ -1,14 +1,10 @@
-// Forgify backend — clean architecture skeleton.
+// Command server boots the Forgify backend: logger, DB, HTTP router with
+// middleware chain, and graceful shutdown. Per-domain handlers and
+// services wire in through router.Deps as Phase 2 progresses.
 //
-// Phase 0/1: bootstrap that wires up logger, DB (via infra/gorm), HTTP
-// router (with all middlewares), and graceful shutdown. Per-domain
-// handlers and services are wired in during Phase 2 through router.Deps.
-//
-// Forgify 后端 — 清晰架构骨架。
-//
-// Phase 0/1：启动流程，组装 logger、DB（通过 infra/gorm）、HTTP 路由
-// （含全部中间件）、优雅关闭。各 domain 的 handler 和 service 在 Phase 2
-// 通过 router.Deps 接入。
+// Command server 启动 Forgify 后端：logger、DB、带中间件链的 HTTP 路由、
+// 优雅关闭。各 domain 的 handler 和 service 随 Phase 2 推进通过
+// router.Deps 接入。
 package main
 
 import (
@@ -41,10 +37,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
 		os.Exit(1)
 	}
-	// Flush any buffered logs on exit. Error ignored because we're exiting anyway.
-	//
-	// 退出时刷出缓存日志。错误忽略，因为进程反正要退。
-	defer log.Sync() //nolint:errcheck
+	defer log.Sync() //nolint:errcheck // flush on exit; error is noise
 
 	db, err := gormdb.Open(gormdb.Config{DataDir: *dataDir})
 	if err != nil {
@@ -57,21 +50,16 @@ func main() {
 		}
 	}()
 
-	// Phase 2 will extend this call with real domain models:
+	// Phase 2 will pass domain models here, e.g.:
 	//   gormdb.Migrate(db, &apikey.APIKey{}, &tool.Tool{}, ...)
 	//
-	// Phase 2 会扩展这里为真实 domain model：
+	// Phase 2 会传入 domain model，例如：
 	//   gormdb.Migrate(db, &apikey.APIKey{}, &tool.Tool{}, ...)
 	if err := gormdb.Migrate(db); err != nil {
 		log.Error("migrate db", zap.Error(err))
 		os.Exit(1)
 	}
 
-	// Assemble the HTTP handler: routes + middleware chain.
-	// All route registration lives in router/ and handlers/, not here.
-	//
-	// 组装 HTTP handler：路由 + 中间件链。
-	// 所有路由注册都在 router/ 和 handlers/，main.go 不沾具体路由。
 	handler := router.New(router.Deps{Log: log})
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
@@ -82,16 +70,14 @@ func main() {
 	actualPort := listener.Addr().(*net.TCPAddr).Port
 
 	// Electron reads this line from stdout to discover the port.
-	//
-	// Electron 从 stdout 读取这一行来发现后端端口。
+	// Electron 从 stdout 读取此行发现端口。
 	fmt.Printf("BACKEND_PORT=%d\n", actualPort)
 
 	srv := &http.Server{
 		Handler:     handler,
 		ReadTimeout: 15 * time.Second,
-		// WriteTimeout intentionally 0: SSE streams may run for minutes.
-		//
-		// WriteTimeout 特意设为 0：SSE 流可能持续几分钟。
+		// WriteTimeout=0 because SSE streams may run for minutes.
+		// WriteTimeout=0，因为 SSE 流可能持续几分钟。
 		IdleTimeout: 60 * time.Second,
 	}
 
@@ -109,8 +95,7 @@ func main() {
 	<-ctx.Done()
 	log.Info("shutdown requested")
 
-	// Give in-flight requests up to 5s to complete before forcing shutdown.
-	//
+	// Give in-flight requests up to 5s before forcing shutdown.
 	// 给进行中的请求最多 5 秒完成，之后强制关闭。
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

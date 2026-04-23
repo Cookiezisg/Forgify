@@ -1,13 +1,9 @@
-// Package crypto provides concrete implementations of domain/crypto.
+// Package crypto implements domain/crypto.Encryptor.
+// Current: AES-GCM with master key derived from machine fingerprint.
+// Future: envelope encryption backed by cloud KMS (for SaaS).
 //
-// Current implementation: AES-GCM with a master key derived from the host's
-// machine fingerprint. Future implementation (not in this file): envelope
-// encryption backed by a cloud KMS, for the SaaS variant of Forgify.
-//
-// Package crypto 提供 domain/crypto 的具体实现。
-//
-// 当前实现：AES-GCM，主密钥从主机的机器指纹派生。未来实现（不在本文件）：
-// 基于云 KMS 的信封加密，用于 Forgify 的 SaaS 版本。
+// Package crypto 实现 domain/crypto.Encryptor。
+// 当前：AES-GCM，主密钥从机器指纹派生。未来：基于云 KMS 的信封加密（SaaS）。
 package crypto
 
 import (
@@ -20,37 +16,28 @@ import (
 )
 
 // ErrNoFingerprint is returned when MachineFingerprint cannot determine a
-// stable machine identity. Callers MUST refuse to proceed rather than use
-// a weak fallback — sharing a single encryption key across all users would
-// be a catastrophic security failure (one DB leak exposes everything).
+// stable machine identity. Callers MUST refuse to proceed — sharing a
+// fallback key across users would be a critical security failure.
 //
 // ErrNoFingerprint 在 MachineFingerprint 无法确定稳定机器标识时返回。
-// 调用方**必须**拒绝继续，而不是 fallback 到弱默认值——让所有用户共享
-// 一个加密密钥是灾难级安全故障（单次 DB 泄漏波及所有数据）。
+// 调用方**必须**拒绝继续——共享 fallback 密钥等于严重安全故障。
 var ErrNoFingerprint = errors.New("cannot determine machine fingerprint")
 
 // MachineFingerprint returns a stable per-machine identifier suitable for
-// deriving encryption keys. It NEVER returns a hardcoded fallback — the
-// old implementation's "forgify-fallback-key" was a critical vulnerability.
+// deriving encryption keys. NEVER returns a hardcoded fallback.
 //
-// Platform support:
-//   - darwin:  IOPlatformSerialNumber via `ioreg`
-//   - windows: MachineGuid via registry
+// Platform sources:
+//   - darwin:  ioreg IOPlatformSerialNumber
+//   - windows: registry MachineGuid
 //   - linux:   /etc/machine-id
 //
-// If the platform probe fails, ErrNoFingerprint is returned — the caller
-// should abort startup.
+// MachineFingerprint 返回可用于派生加密密钥的稳定机器标识。
+// **永不**返回硬编码 fallback。
 //
-// MachineFingerprint 返回可用于派生加密密钥的稳定机器标识。它**永远不会**
-// 返回硬编码的 fallback——老实现里的 "forgify-fallback-key" 是一个严重
-// 安全漏洞。
-//
-// 平台支持：
-//   - darwin:  通过 ioreg 拿 IOPlatformSerialNumber
-//   - windows: 读注册表 MachineGuid
-//   - linux:   读 /etc/machine-id
-//
-// 若平台探测失败，返回 ErrNoFingerprint——调用方应终止启动。
+// 平台来源：
+//   - darwin:  ioreg IOPlatformSerialNumber
+//   - windows: 注册表 MachineGuid
+//   - linux:   /etc/machine-id
 func MachineFingerprint() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":

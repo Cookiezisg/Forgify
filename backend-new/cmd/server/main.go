@@ -21,8 +21,12 @@ import (
 
 	"go.uber.org/zap"
 
+	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
+	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
+	infracrypto "github.com/sunweilin/forgify/backend/internal/infra/crypto"
 	"github.com/sunweilin/forgify/backend/internal/infra/db"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
+	apikeystore "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/router"
 )
 
@@ -50,17 +54,42 @@ func main() {
 		}
 	}()
 
-	// Phase 2 will pass domain models here, e.g.:
-	//   db.Migrate(gdb, &apikey.APIKey{}, &tool.Tool{}, ...)
-	//
-	// Phase 2 会传入 domain model，例如：
-	//   db.Migrate(gdb, &apikey.APIKey{}, &tool.Tool{}, ...)
-	if err := db.Migrate(gdb); err != nil {
+	// Phase 2 domain tables. New domains append their GORM models here.
+	// Phase 2 domain 表。新 domain 把 GORM model 追加到这里。
+	if err := db.Migrate(gdb, &apikeydomain.APIKey{}); err != nil {
 		log.Error("migrate db", zap.Error(err))
 		os.Exit(1)
 	}
 
-	handler := router.New(router.Deps{Log: log})
+	// apikey stack: machine-fingerprint-derived AES-GCM encryptor, HTTP
+	// connectivity tester, GORM-backed store, orchestrating Service.
+	// Fingerprint failure is fatal — sharing a fallback key across users
+	// would be a critical security hole (see infra/crypto.ErrNoFingerprint).
+	//
+	// apikey 栈：基于机器指纹派生的 AES-GCM encryptor、HTTP 连通性 tester、
+	// GORM store、Service 编排。指纹获取失败直接退出——共享 fallback 密钥
+	// 等于严重安全漏洞（见 infra/crypto.ErrNoFingerprint）。
+	fingerprint, err := infracrypto.MachineFingerprint()
+	if err != nil {
+		log.Error("machine fingerprint", zap.Error(err))
+		os.Exit(1)
+	}
+	encryptor, err := infracrypto.NewAESGCMEncryptor(infracrypto.DeriveKey(fingerprint))
+	if err != nil {
+		log.Error("build encryptor", zap.Error(err))
+		os.Exit(1)
+	}
+	apikeyService := apikeyapp.NewService(
+		apikeystore.New(gdb),
+		encryptor,
+		apikeyapp.NewHTTPTester(nil), // default 10s timeout / 默认 10s 超时
+		log,
+	)
+
+	handler := router.New(router.Deps{
+		Log:           log,
+		APIKeyService: apikeyService,
+	})
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
 	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
 )
 
@@ -26,6 +27,16 @@ type errMapping struct {
 var errTable = map[error]errMapping{
 	derrors.ErrInvalidRequest: {http.StatusBadRequest, "INVALID_REQUEST"},
 	derrors.ErrInternal:       {http.StatusInternalServerError, "INTERNAL_ERROR"},
+
+	// apikey domain / apikey domain 层
+	apikeydomain.ErrNotFound:            {http.StatusNotFound, "API_KEY_NOT_FOUND"},
+	apikeydomain.ErrNotFoundForProvider: {http.StatusNotFound, "API_KEY_PROVIDER_NOT_FOUND"},
+	apikeydomain.ErrInvalidProvider:     {http.StatusBadRequest, "INVALID_PROVIDER"},
+	apikeydomain.ErrBaseURLRequired:     {http.StatusBadRequest, "BASE_URL_REQUIRED"},
+	apikeydomain.ErrAPIFormatRequired:   {http.StatusBadRequest, "API_FORMAT_REQUIRED"},
+	apikeydomain.ErrKeyRequired:         {http.StatusBadRequest, "KEY_REQUIRED"},
+	apikeydomain.ErrTestFailed:          {http.StatusUnprocessableEntity, "API_KEY_TEST_FAILED"},
+	apikeydomain.ErrInvalid:             {http.StatusUnauthorized, "API_KEY_INVALID"},
 }
 
 // FromDomainError translates a domain error to an HTTP envelope via errTable.

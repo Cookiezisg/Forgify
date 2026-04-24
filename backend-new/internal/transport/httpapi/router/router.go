@@ -31,6 +31,9 @@ func New(deps Deps) http.Handler {
 	// Each handler registers its own routes.
 	// 每个 handler 注册自己的路由。
 	handlers.NewHealthHandler().Register(mux)
+	if deps.APIKeyService != nil {
+		handlers.NewAPIKeyHandler(deps.APIKeyService, deps.Log).Register(mux)
+	}
 
 	// 404 fallback — must be last so specific routes take precedence.
 	// 404 兜底——必须最后，让具体路由优先。

@@ -21,7 +21,7 @@
 
 | Phase | 主题 | 工时 | 状态 | 交付价值 |
 |---|---|---|---|---|
-| **Phase 2** | 基础对话能力：apikey + model + conversation + 简版 chat | ~11h | ⬜ 未开始 | 像 ChatGPT 客户端能用 |
+| **Phase 2** | 基础对话能力：apikey + model + conversation + 简版 chat | ~11h | 🚧 进行中（apikey domain ✅ + store ✅ + tester ✅ + service ✅，剩 handler / 装配 + 其他 domain）| 像 ChatGPT 客户端能用 |
 | **Phase 3** | 工具锻造能力：forge + attachment + tool + chat 加 tool calling | ~12h | ⬜ 未开始 | Forgify V1.0 体验完整（聊天造工具）|
 | **Phase 4** | 工作流能力：workflow + flowrun + 节点系统 + scheduler | ~20h | ⬜ 未开始 | 桌面版 Coze（拖拽编排 + 定时跑）|
 | **Phase 5** | 智能化：knowledge + intent + mcp + skill + 完整智能 chat | ~15h | ⬜ 未开始 | 完整 Agent 平台（一句话生成工作流）|
@@ -58,6 +58,10 @@
 | 2026-04-23 | 加 locale middleware（`InjectLocale`）+ 跨层共享包 `internal/pkg/reqctx/`：解析 Accept-Language（zh-CN/en）注入 ctx，供 LLM 相关代码读。`reqctx` 包立 `pkg/` 约束（只 stdlib、无状态、单一职责）。UserID 逻辑从 middleware 迁到 reqctx 统一管理。新增 28 个测试 |
 | 2026-04-23 | **全量注释瘦身**：15 个生产文件共砍 ~420 行冗余注释，保留双语 godoc 但移除架构哲学、重复说明、跑题猜测。S11 规范扩展为"双语 + 节制"完整规则 |
 | 2026-04-23 | **Phase 2 路线图修正**：新增 `model` domain（极简策略层"场景 → provider/model"）。起因：推演 chat 端到端调用链时发现"provider 从哪来"没有归属——apikey 管凭证、chat 管编排，都不该决策 provider。立第 5 条设计原则"端到端推演先行"，每个 domain 开工前必须走完整数据流 |
+| 2026-04-24 | **Phase 2 Task #1 完成**：apikey domain 层。先后试过扁平、按角色子包（types/ports/registry/tools）、Go 社区味子包等多种结构，最后定**平铺**：`apikey.go`（entity + 常量 + errors + Credentials + ListFilter + Repository + KeyProvider）+ `providers.go`（11 provider 白名单）。`mask` 搬到 app 层（只有 Service 用）。立 **S12 包结构**（domain 平铺，按概念拆文件，禁止子目录）。14 个新测试 |
+| 2026-04-24 | **Phase 2 Task #2 完成**：apikey Repository 实现 + 18 集成测试（CRUD + 跨用户隔离 + 分页 + GetByProvider 排序）。期间做 3 个相关重构：(1) `infra/gorm/` → `infra/db/`（去掉表 CRUD，只剩通用 DB 底层）；(2) Repository 实现从 infra 拆出又搬回，最终落在 `infra/store/<domain>/`（Clean Architecture 正统）；(3) 立 **S13 包命名**——三层（domain / app / infra/store）的包名都用 domain 单名（如 `apikey`），调用方 import 时按 `<name><role>` 起别名（apikeydomain / apikeyapp / apikeystore）。累计测试全绿 |
+| 2026-04-24 | **Phase 2 Task #3 完成**：`app/apikey/tester.go` 的 ConnectivityTester 接口 + HTTPTester 实现 + 21 个 httptest 用例。分派 4 种 HTTP 模式（openai-compatible `/models` / anthropic `/v1/messages` 1-token ping / google `/v1beta/models?key=` query 认证 / ollama `/api/tags` 无认证）+ custom 按 APIFormat 二选一。约定：网络/401/5xx/ctx 取消 → `TestResult{OK:false, Message}`；未知 provider / 必填 baseURL 缺失 → Go error（程序 bug 才上抛）。期间审计发现 S13 import 别名两处违规（tester.go + **pre-existing** `infra/store/apikey/store.go`），一并修复；立"spec 优先于邻居文件"的审计纪律 |
+| 2026-04-24 | **Phase 2 Task #4 完成**：`app/apikey/service.go` + `keyprovider.go` + 18 单测。Service 负责 CRUD + 加密边界 + Test 编排（repo.Get → decrypt → tester.Test → repo.UpdateTestResult → log）+ 实现 `apikeydomain.KeyProvider`（ResolveCredentials 解密并合并默认 baseURL，MarkInvalid 给 chat/workflow 回报 401）。用真 `infra/crypto.AESGCMEncryptor` + fake repo + fake tester，端到端覆盖加解密接线。ID 生成用 `aki_` + 8 字节 crypto/rand；nil logger 启动期 panic。apikey 相关 61 个测试（app 38 + store 18 + domain 5）全绿 |
 
 ---
 
@@ -367,10 +371,12 @@ domain/skill/        ← 新增
 - **S3 错误不吞**：`_` 忽略必须带注释说明原因
 - **S5 单文件 ≤ 250 行**，单函数 ≤ 60 行
 - **S6 handler ≤ 20 行**：只解析/调用/序列化
-- **S8 SQL 只在 `infra/gorm/`**：其他层出现 SQL 都是违规
+- **S8 SQL 只在 `infra/store/` 和 `infra/db/`**：其他层出现 SQL 都是违规
 - **S9 context 传播**：每个跨层调用传 `ctx`
 - **S10 结构化日志**：用 **zap**，生产 JSON / 开发带彩色
 - **S11 注释规范**：详见下方「S11 注释规范（双语 + 节制）」章节
+- **S12 包结构（domain 平铺）**：详见下方「S12 包结构」章节
+- **S13 包命名（三层同名 + 调用方别名）**：详见下方「S13 包命名」章节
 
 ---
 
@@ -438,111 +444,224 @@ IdleTimeout: 60 * time.Second,
 
 ---
 
+### S12 包结构（domain 平铺，按概念拆文件）
+
+每个 domain 的代码**平铺到包根目录**，**禁止子目录**。文件按"概念 / feature"拆分，**禁止**按"种类"拆分。
+
+#### 1. 拆错（DDD/Java 味）vs 拆对（Go 味）
+
+```
+❌ 错误：按 "kind of thing" 拆
+domain/chat/
+├── types.go        (全部 struct)
+├── errors.go       (全部错误)
+├── constants.go    (全部常量)
+└── interfaces.go   (全部接口)
+
+✅ 正确：按 "concept / feature" 拆
+domain/chat/
+├── chat.go         Conversation 核心 + godoc
+├── message.go      Message struct + 相关常量/错误
+├── stream.go       流式输出契约
+└── repository.go   存储接口
+```
+
+每个文件还是混合 types + 常量 + errors + 小 interface——只要它们围绕**同一个子概念**。
+对照 stdlib：`net/http/request.go` 同时定义 `Request` 类型、它的方法、相关常量、相关错误。
+
+#### 2. 主文件命名
+
+主文件用**包名**（如 `apikey.go`、`chat.go`）。包级 godoc 写在主文件顶部，**禁止**单独建 `doc.go`。
+
+#### 3. 文件长度
+
+- < 500 行 舒服
+- 500-1000 行 可接受（只要概念内聚）
+- 1000+ 行 该拆，但拆**文件**不拆包，按子概念（`message.go` / `stream.go`），**不**按种类
+
+#### 4. 何时拆子包
+
+两个硬条件**同时满足**才拆：
+1. 有独立的**词汇体系**（开始给内部概念起专门的名字）
+2. 至少 **10+ 个文件**围绕这个子词汇
+
+stdlib 例子：`net/http/cookiejar`（cookie 自有概念）、`database/sql/driver`（driver vs user 两套 API）。但 `net/http` 本体 60+ 文件就是平铺。
+
+#### 5. 共享纯工具
+
+跨 domain 用的纯函数（无业务、无 infra 依赖）放 `internal/pkg/<name>/`（如 `pkg/reqctx/`、未来的 `pkg/cursor/`）。
+
+---
+
+### S13 包命名（三层同名 + 调用方别名）
+
+#### 1. 包内统一名
+
+每个 domain 在 **domain / app / infra/store** 三层的包名都用 domain 单名（如 `apikey`）：
+
+| 目录 | 包声明 |
+|---|---|
+| `internal/domain/apikey/` | `package apikey` |
+| `internal/app/apikey/` | `package apikey` |
+| `internal/infra/store/apikey/` | `package apikey` |
+
+#### 2. 调用方按角色起别名
+
+外部 import 时按 `<name><role>` 区分：
+
+```go
+import (
+    apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
+    apikeyapp    "github.com/sunweilin/forgify/backend/internal/app/apikey"
+    apikeystore  "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
+)
+
+repo := apikeystore.New(gdb)
+svc  := apikeyapp.NewService(repo, ...)
+var _ apikeydomain.Repository  = repo
+var _ apikeydomain.KeyProvider = svc
+```
+
+#### 3. 互相 import 的别名规则
+
+层间互引时，被引方按角色别名（即使在自己包里）：
+
+```go
+// internal/infra/store/apikey/store.go
+package apikey                                              // 自己叫 apikey
+
+import (
+    apikeydomain "…/internal/domain/apikey"                 // 引 domain 起别名
+)
+
+func (s *Store) Get(ctx context.Context, id string) (*apikeydomain.APIKey, error) {
+    if errors.Is(err, gorm.ErrRecordNotFound) {
+        return nil, apikeydomain.ErrNotFound
+    }
+}
+```
+
+> 当前包的 `package apikey` 声明本身**不占用** identifier slot，技术上不别名也能编过；但**统一别名**是项目规范，便于人眼一眼分辨"这是哪一层的 apikey"。
+
+#### 4. 接口定义位置
+
+- **接口定义**在 domain 层（如 `apikeydomain.Repository`、`apikeydomain.KeyProvider`）
+- **store 实现** Repository（被 service 消费）
+- **app/Service 实现** KeyProvider（被其他 domain 消费）
+- **跨 domain 消费**只通过 port 接口，禁止暴露 entity
+
+#### 5. 为什么这样定
+
+- **包内统一名**：每个 layer 内部代码读起来"就是 apikey"，不用 `apikeydomain.` 这种长前缀
+- **调用方别名**：组装时（main.go、service 互相依赖）一眼分辨层
+- **接口在 domain**：实现可换（GORM → ent → mock），domain 不动
+
+---
+
 ## Target Architecture
+
+> 以 apikey 为参照样板（Phase 2 第 1 个完整 domain）。其他 domain 按同样套路开。
 
 ```
 backend-new/
 ├── cmd/server/main.go              ← 入口，DI 组装
 ├── go.mod / go.sum
 └── internal/
-    ├── domain/                     ← 纯业务（仅 import 标准库）
+    ├── domain/                     ← 纯业务（仅 import 标准库 + GORM tag）
+    │   ├── apikey/                 ← 平铺，按概念拆文件（S12）
+    │   │   ├── apikey.go           ← entity + 常量 + errors + Credentials +
+    │   │   │                          ListFilter + Repository + KeyProvider 接口
+    │   │   ├── providers.go        ← 11 provider 白名单（业务数据）
+    │   │   └── providers_test.go
     │   ├── conversation/
-    │   │   ├── types.go            ← Conversation、Message
-    │   │   ├── errors.go           ← ErrNotFound 等 sentinel
-    │   │   ├── repository.go       ← ConversationRepository 接口
-    │   │   └── rules.go            ← 纯校验函数（无副作用）
+    │   │   └── conversation.go     ← Conversation + Message + Repository + 错误
     │   ├── tool/
-    │   │   ├── types.go            ← Tool、Parameter、Version、TestCase
-    │   │   ├── errors.go
-    │   │   ├── repository.go
-    │   │   └── rules.go            ← 参数校验、代码合法性规则
+    │   │   ├── tool.go             ← Tool + Parameter + Version + Repository
+    │   │   └── rules.go            ← 参数校验等业务规则
     │   ├── chat/
-    │   │   └── types.go            ← Stream、ToolCall、Message
+    │   │   └── chat.go             ← Stream + ToolCall + Message
     │   ├── forge/
-    │   │   └── types.go            ← ParsedCode、DetectedBlock
-    │   ├── apikey/
-    │   │   ├── types.go
-    │   │   ├── errors.go
-    │   │   └── repository.go
+    │   │   └── forge.go            ← ParsedCode + DetectedBlock
     │   └── attachment/
-    │       └── types.go
+    │       └── attachment.go
     │
     ├── app/                        ← service 层（协调 domain + infra）
-    │   ├── conversation/
-    │   │   └── service.go          ← ConversationService（Create/List/Archive/...）
-    │   ├── tool/
-    │   │   ├── service.go          ← ToolService（CRUD + 运行）
-    │   │   ├── version.go          ← 版本管理子服务
-    │   │   └── import_export.go    ← 导入导出
+    │   ├── apikey/                 ← 包名 apikey，调用方别名 apikeyapp（S13）
+    │   │   ├── service.go          ← Service（CRUD + KeyProvider 实现）
+    │   │   ├── tester.go           ← ConnectivityTester + HTTPTester
+    │   │   ├── mask.go             ← MaskKey（service 私有工具）
+    │   │   └── *_test.go
     │   ├── chat/
     │   │   ├── service.go          ← ChatService.Send（入口）
     │   │   ├── stream.go           ← 流式循环（原 doStream）
     │   │   └── tool_calling.go     ← 工具调用（原 executeToolCall）
+    │   ├── tool/
+    │   │   ├── service.go
+    │   │   ├── version.go
+    │   │   └── import_export.go
+    │   ├── conversation/
+    │   │   └── service.go
     │   ├── forge/
-    │   │   ├── parser.go           ← AST 解析（搬迁）
-    │   │   ├── detector.go         ← 代码块检测
-    │   │   └── service.go          ← 锻造流程编排
-    │   ├── apikey/
+    │   │   ├── parser.go
+    │   │   ├── detector.go
     │   │   └── service.go
     │   └── attachment/
     │       └── service.go
     │
     ├── infra/                      ← 技术实现
-    │   ├── gorm/                   ← 唯一碰 SQL 的地方
-    │   │   ├── db.go               ← GORM 初始化，读现有 migrations
-    │   │   ├── migrations/         ← SQL 迁移文件（新的 schema）
-    │   │   ├── conversation_repo.go
-    │   │   ├── tool_repo.go
-    │   │   ├── apikey_repo.go
-    │   │   └── ...
+    │   ├── db/                     ← 通用 DB 底层（domain 无关）
+    │   │   ├── db.go               ← GORM 初始化（连接 / WAL / FK）
+    │   │   ├── migrate.go          ← AutoMigrate + schema_extras 入口
+    │   │   └── schema_extras.go    ← FTS5 / 触发器等 AutoMigrate 表达不了的 SQL
+    │   ├── store/                  ← domain-aware 的 Repository 实现
+    │   │   └── apikey/             ← 包名 apikey，调用方别名 apikeystore（S13）
+    │   │       ├── store.go        ← 实现 domain/apikey.Repository
+    │   │       └── store_test.go
     │   ├── eino/                   ← Eino LLM gateway 适配
     │   │   └── chat_model.go
     │   ├── sandbox/                ← Python 执行
     │   │   ├── executor.go
     │   │   ├── installer.go
     │   │   └── process.go
-    │   ├── events/                 ← SSE broker
-    │   │   ├── bridge.go
-    │   │   └── types.go            ← 所有事件的 Go struct
-    │   ├── crypto/                 ← 加密
-    │   │   ├── encrypt.go
+    │   ├── events/                 ← in-memory event bridge
+    │   │   └── memory/bridge.go
+    │   ├── crypto/                 ← AES-256-GCM 加解密
+    │   │   ├── aesgcm.go
     │   │   └── fingerprint.go
-    │   └── logger/                 ← slog 配置
-    │       └── slog.go
+    │   └── logger/                 ← Zap 配置
+    │       └── zap.go
+    │
+    ├── pkg/                        ← 跨层共享纯工具（无业务、无 infra 依赖）
+    │   └── reqctx/                 ← user_id / locale 注入与读取
     │
     └── transport/
         └── httpapi/                ← 包名避开 net/http 冲突
-            ├── server.go           ← HTTP 服务器生命周期（启动、优雅关闭）
-            ├── router.go           ← 路由注册集中管理
-            ├── deps.go             ← DI 结构体（持有所有 service）
-            │
-            ├── response/           ← 📦 通用能力：响应包装（独立包）
-            │   ├── envelope.go     ← Success / Created / NoContent / Paged / Error
-            │   └── errmap.go       ← FromDomainError + 错误映射表
-            │
-            ├── middleware/         ← 📦 通用能力：中间件（独立包）
-            │   ├── recover.go      ← panic 恢复
-            │   ├── logger.go       ← 请求日志
-            │   ├── cors.go         ← 跨域
-            │   └── notfound.go     ← 404 envelope（覆盖默认裸文本）
-            │
-            └── handlers/           ← 📦 业务 handler（独立包）
+            ├── router/             ← 路由注册 + Deps DI
+            ├── response/           ← 📦 envelope + errmap（框架级通用能力）
+            ├── middleware/         ← 📦 recover / logger / cors / locale / userid
+            ├── pagination/         ← 📦 cursor 分页解析与编码
+            └── handlers/           ← 📦 业务 handler（每 domain 一个文件）
                 ├── health.go
+                ├── apikey.go
                 ├── chat.go
                 ├── tool.go
                 ├── conversation.go
-                ├── apikey.go
                 ├── attachment.go
                 ├── model.go
                 └── sse.go
 ```
 
-**依赖方向**：`transport → app → domain`、`infra → domain`（实现接口）、`domain` 不依赖任何人。
+**依赖方向**：`transport → app → (domain ∪ infra/store)`、`infra/store → domain`（实现接口）、`infra/db → 标准库`、`domain` 不依赖任何人。
 
-**类型策略**：domain 类型直接带 GORM tag（一份到底）。
+**`infra/db/` vs `infra/store/<domain>/` 的拆分**：
+- `infra/db/` ——通用 DB 底层（连接、迁移、schema_extras），与任何具体表无关
+- `infra/store/<domain>/` ——表相关的 CRUD（业务 aware），实现 `domain/<domain>.Repository`
+- 同一个 domain 在 store 层的包名也叫 `<domain>`（如 `apikey`），调用方 import 时按 `<name><role>` 起别名（见 S13）
+
+**类型策略**：domain 类型直接带 GORM tag（一份到底）；store 层不再做 entity↔row 转换。
 
 **transport/httpapi 内部分层原则**：**稳定的（通用能力）和频繁变的（业务 handler）分开放**。
-- `response/` `middleware/` 属于框架级通用能力，写一次用很久
+- `response/` `middleware/` `pagination/` 属于框架级通用能力，写一次用很久
 - `handlers/` 属于业务级代码，每加一个 feature 就新增/修改
 
 ---
@@ -599,10 +718,13 @@ backend-new/
 
 ### 新增（backend-new/）
 - `backend-new/cmd/server/main.go` — 入口
-- `backend-new/internal/domain/{conversation,tool,chat,forge,apikey,attachment}/` — 6 个 domain
-- `backend-new/internal/infra/{gorm,eino,sandbox,events,crypto,logger}/` — 6 个 infra
-- `backend-new/internal/transport/http/` — HTTP 层
-- `backend-new/internal/infra/gorm/migrations/001_init.sql` — 新 schema
+- `backend-new/internal/domain/{conversation,tool,chat,forge,apikey,attachment}/` — 6 个 domain（平铺，S12）
+- `backend-new/internal/app/{apikey,...}/` — 各 domain 的 Service / 私有工具
+- `backend-new/internal/infra/db/` — 通用 DB 底层（连接 / 迁移 / schema_extras）
+- `backend-new/internal/infra/store/{apikey,...}/` — 各 domain 的 GORM Repository 实现
+- `backend-new/internal/infra/{eino,sandbox,events,crypto,logger}/` — 5 个其他 infra
+- `backend-new/internal/pkg/{reqctx,...}/` — 跨层共享纯工具
+- `backend-new/internal/transport/httpapi/` — HTTP 层
 - `backend-new/Makefile`
 
 ### 删除（切换后）

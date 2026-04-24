@@ -74,10 +74,15 @@
 
 | Code | HTTP | Sentinel | 场景 | 状态 |
 |---|---|---|---|---|
-| `API_KEY_NOT_FOUND` | 404 | `apikey.ErrNotFound` | 通过 ID 查询不到 | ⬜ |
-| `API_KEY_INVALID` | 401 | `apikey.ErrInvalid` | API Key 格式错或鉴权失败 | ⬜ |
-| `API_KEY_TEST_FAILED` | 422 | `apikey.ErrTestFailed` | 测试连通性失败（网络、provider 拒绝）| ⬜ |
-| `API_KEY_DUPLICATE_PROVIDER` | 409 | `apikey.ErrDuplicateProvider` | 同一 provider 已有 Key | ⬜（待定）|
+| `API_KEY_NOT_FOUND` | 404 | `apikey.ErrNotFound` | 通过 ID 查询不到 | ✅ |
+| `API_KEY_PROVIDER_NOT_FOUND` | 404 | `apikey.ErrNotFoundForProvider` | 当前用户在该 provider 下无活跃 Key（chat/workflow 调 ResolveCredentials）| ✅ |
+| `INVALID_PROVIDER` | 400 | `apikey.ErrInvalidProvider` | 创建时 provider 不在 11 个白名单内 | ✅ |
+| `BASE_URL_REQUIRED` | 400 | `apikey.ErrBaseURLRequired` | ollama / custom 没填 baseURL | ✅ |
+| `API_FORMAT_REQUIRED` | 400 | `apikey.ErrAPIFormatRequired` | custom provider 没填 apiFormat | ✅ |
+| `KEY_REQUIRED` | 400 | `apikey.ErrKeyRequired` | 创建时 key 字段空 | ✅ |
+| `API_KEY_TEST_FAILED` | 422 | `apikey.ErrTestFailed` | 测试连通性失败（网络、provider 拒绝）| ✅ |
+| `API_KEY_INVALID` | 401 | `apikey.ErrInvalid` | 使用时 provider 返回 401（由 chat 等消费方触发）| ✅ |
+| `API_KEY_DUPLICATE_PROVIDER` | 409 | `apikey.ErrDuplicateProvider` | 同一 provider 已有 Key | ⬜（待定，V1 允许多 key）|
 
 #### conversation
 

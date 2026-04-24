@@ -14,7 +14,7 @@ import (
 
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/sunweilin/forgify/backend/internal/domain/apikey"
+	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
 	"github.com/sunweilin/forgify/backend/internal/infra/db"
 	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
@@ -34,7 +34,7 @@ func newStore(t *testing.T) *Store {
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close(database) })
-	if err := db.Migrate(database, &apikey.APIKey{}); err != nil {
+	if err := db.Migrate(database, &apikeydomain.APIKey{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return New(database)
@@ -47,15 +47,15 @@ func ctxFor(userID string) context.Context {
 // mkKey builds a minimal APIKey for insertion. Caller can override fields.
 //
 // mkKey 构造一个最小的 APIKey 用于插入。调用方可覆盖字段。
-func mkKey(id, userID, provider string) *apikey.APIKey {
-	return &apikey.APIKey{
+func mkKey(id, userID, provider string) *apikeydomain.APIKey {
+	return &apikeydomain.APIKey{
 		ID:           id,
 		UserID:       userID,
 		Provider:     provider,
 		DisplayName:  "test-" + id,
 		KeyEncrypted: "v1:cipher-" + id,
 		KeyMasked:    "sk-...xxxx",
-		TestStatus:   apikey.TestStatusPending,
+		TestStatus:   apikeydomain.TestStatusPending,
 	}
 }
 
@@ -105,7 +105,7 @@ func TestGet_NotFound(t *testing.T) {
 	ctx := ctxFor(userAlice)
 
 	_, err := s.Get(ctx, "missing")
-	if !errors.Is(err, apikey.ErrNotFound) {
+	if !errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("got %v, want ErrNotFound", err)
 	}
 }
@@ -120,7 +120,7 @@ func TestGet_CrossUserIsolation(t *testing.T) {
 	}
 
 	_, err := s.Get(ctxFor(userBob), "k1")
-	if !errors.Is(err, apikey.ErrNotFound) {
+	if !errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("Bob Get Alice's key: got %v, want ErrNotFound", err)
 	}
 }
@@ -133,7 +133,7 @@ func TestGet_MissingUserIDInCtx(t *testing.T) {
 	if err == nil {
 		t.Errorf("Get without userID: got nil, want error")
 	}
-	if errors.Is(err, apikey.ErrNotFound) {
+	if errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("wiring bug leaked as ErrNotFound: %v", err)
 	}
 }
@@ -148,7 +148,7 @@ func TestDelete_SoftDeletes(t *testing.T) {
 	if err := s.Delete(ctx, "k1"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := s.Get(ctx, "k1"); !errors.Is(err, apikey.ErrNotFound) {
+	if _, err := s.Get(ctx, "k1"); !errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("Get after Delete: got %v, want ErrNotFound", err)
 	}
 }
@@ -156,7 +156,7 @@ func TestDelete_SoftDeletes(t *testing.T) {
 func TestDelete_NotFoundReturnsError(t *testing.T) {
 	s := newStore(t)
 	err := s.Delete(ctxFor(userAlice), "missing")
-	if !errors.Is(err, apikey.ErrNotFound) {
+	if !errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("got %v, want ErrNotFound", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestDelete_CrossUserIsolation(t *testing.T) {
 	if err := s.Save(ctxFor(userAlice), mkKey("k1", userAlice, "openai")); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if err := s.Delete(ctxFor(userBob), "k1"); !errors.Is(err, apikey.ErrNotFound) {
+	if err := s.Delete(ctxFor(userBob), "k1"); !errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("Bob deleting Alice's key: got %v, want ErrNotFound", err)
 	}
 	// Alice's key should still exist.
@@ -186,7 +186,7 @@ func TestUpdateTestResult_WritesOnlyTargetedFields(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	if err := s.UpdateTestResult(ctx, "k1", apikey.TestStatusOK, ""); err != nil {
+	if err := s.UpdateTestResult(ctx, "k1", apikeydomain.TestStatusOK, ""); err != nil {
 		t.Fatalf("UpdateTestResult: %v", err)
 	}
 
@@ -194,8 +194,8 @@ func TestUpdateTestResult_WritesOnlyTargetedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.TestStatus != apikey.TestStatusOK {
-		t.Errorf("TestStatus = %q, want %q", got.TestStatus, apikey.TestStatusOK)
+	if got.TestStatus != apikeydomain.TestStatusOK {
+		t.Errorf("TestStatus = %q, want %q", got.TestStatus, apikeydomain.TestStatusOK)
 	}
 	if got.LastTestedAt == nil {
 		t.Errorf("LastTestedAt is nil, expected set")
@@ -207,8 +207,8 @@ func TestUpdateTestResult_WritesOnlyTargetedFields(t *testing.T) {
 
 func TestUpdateTestResult_NotFound(t *testing.T) {
 	s := newStore(t)
-	err := s.UpdateTestResult(ctxFor(userAlice), "missing", apikey.TestStatusOK, "")
-	if !errors.Is(err, apikey.ErrNotFound) {
+	err := s.UpdateTestResult(ctxFor(userAlice), "missing", apikeydomain.TestStatusOK, "")
+	if !errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("got %v, want ErrNotFound", err)
 	}
 }
@@ -223,7 +223,7 @@ func TestGetByProvider_PrefersOKOverPending(t *testing.T) {
 	}
 
 	okKey := mkKey("k-ok", userAlice, "openai")
-	okKey.TestStatus = apikey.TestStatusOK
+	okKey.TestStatus = apikeydomain.TestStatusOK
 	if err := s.Save(ctx, okKey); err != nil {
 		t.Fatalf("Save ok: %v", err)
 	}
@@ -245,14 +245,14 @@ func TestGetByProvider_PrefersRecentlyTested(t *testing.T) {
 	newer := time.Now().UTC().Add(-10 * time.Minute)
 
 	kOld := mkKey("k-old", userAlice, "openai")
-	kOld.TestStatus = apikey.TestStatusOK
+	kOld.TestStatus = apikeydomain.TestStatusOK
 	kOld.LastTestedAt = &older
 	if err := s.Save(ctx, kOld); err != nil {
 		t.Fatalf("Save old: %v", err)
 	}
 
 	kNew := mkKey("k-new", userAlice, "openai")
-	kNew.TestStatus = apikey.TestStatusOK
+	kNew.TestStatus = apikeydomain.TestStatusOK
 	kNew.LastTestedAt = &newer
 	if err := s.Save(ctx, kNew); err != nil {
 		t.Fatalf("Save new: %v", err)
@@ -270,7 +270,7 @@ func TestGetByProvider_PrefersRecentlyTested(t *testing.T) {
 func TestGetByProvider_NotFound(t *testing.T) {
 	s := newStore(t)
 	_, err := s.GetByProvider(ctxFor(userAlice), "openai")
-	if !errors.Is(err, apikey.ErrNotFoundForProvider) {
+	if !errors.Is(err, apikeydomain.ErrNotFoundForProvider) {
 		t.Errorf("got %v, want ErrNotFoundForProvider", err)
 	}
 }
@@ -288,7 +288,7 @@ func TestList_Basic(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 
-	rows, next, err := s.List(ctx, apikey.ListFilter{Limit: 10})
+	rows, next, err := s.List(ctx, apikeydomain.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestList_PaginationWithCursor(t *testing.T) {
 	}
 
 	// Page 1 / 第一页
-	page1, next, err := s.List(ctx, apikey.ListFilter{Limit: 2})
+	page1, next, err := s.List(ctx, apikeydomain.ListFilter{Limit: 2})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestList_PaginationWithCursor(t *testing.T) {
 	}
 
 	// Page 2 / 第二页
-	page2, next2, err := s.List(ctx, apikey.ListFilter{Limit: 2, Cursor: next})
+	page2, next2, err := s.List(ctx, apikeydomain.ListFilter{Limit: 2, Cursor: next})
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestList_PaginationWithCursor(t *testing.T) {
 	}
 
 	// Page 3 (final) / 第三页（收尾）
-	page3, next3, err := s.List(ctx, apikey.ListFilter{Limit: 2, Cursor: next2})
+	page3, next3, err := s.List(ctx, apikeydomain.ListFilter{Limit: 2, Cursor: next2})
 	if err != nil {
 		t.Fatalf("page3: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestList_ProviderFilter(t *testing.T) {
 		t.Fatalf("Save a1: %v", err)
 	}
 
-	rows, _, err := s.List(ctx, apikey.ListFilter{Limit: 10, Provider: "openai"})
+	rows, _, err := s.List(ctx, apikeydomain.ListFilter{Limit: 10, Provider: "openai"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestList_CrossUserIsolation(t *testing.T) {
 		t.Fatalf("Save Bob: %v", err)
 	}
 
-	rows, _, err := s.List(ctxFor(userAlice), apikey.ListFilter{Limit: 10})
+	rows, _, err := s.List(ctxFor(userAlice), apikeydomain.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestList_CrossUserIsolation(t *testing.T) {
 
 func TestList_InvalidCursor(t *testing.T) {
 	s := newStore(t)
-	_, _, err := s.List(ctxFor(userAlice), apikey.ListFilter{Cursor: "!!!not-base64!!!"})
+	_, _, err := s.List(ctxFor(userAlice), apikeydomain.ListFilter{Cursor: "!!!not-base64!!!"})
 	if err == nil {
 		t.Errorf("got nil, want error on malformed cursor")
 	}

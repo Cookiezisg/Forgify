@@ -110,6 +110,14 @@ func NewService(
 	if log == nil {
 		panic("chat.NewService: logger is nil")
 	}
+	// When no data directory is configured (dev/in-memory mode), fall back to a
+	// fixed subdirectory under the OS temp dir so attachments don't pollute CWD.
+	//
+	// 没有配置数据目录时（dev/内存模式），回退到系统临时目录的固定子目录，
+	// 避免附件污染工作目录。
+	if dataDir == "" {
+		dataDir = filepath.Join(os.TempDir(), "forgify")
+	}
 	return &Service{
 		repo:         repo,
 		convRepo:     convRepo,

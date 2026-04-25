@@ -20,12 +20,14 @@ import (
 // Conversation 是对话线程容器。Title 可为空，待用户手动改名或
 // Phase 5 根据首轮对话自动命名。
 type Conversation struct {
-	ID        string         `gorm:"primaryKey;type:text" json:"id"`
-	UserID    string         `gorm:"not null;index;type:text" json:"-"`
-	Title     string         `gorm:"not null;type:text;default:''" json:"title"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID           string         `gorm:"primaryKey;type:text" json:"id"`
+	UserID       string         `gorm:"not null;index;type:text" json:"-"`
+	Title        string         `gorm:"not null;type:text;default:''" json:"title"`
+	AutoTitled   bool           `gorm:"not null;default:false" json:"autoTitled"`
+	SystemPrompt string         `gorm:"type:text;default:''" json:"systemPrompt,omitempty"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // TableName locks the DB table to "conversations".

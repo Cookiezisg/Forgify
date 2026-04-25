@@ -157,7 +157,7 @@
 - [ ] `infra/eino/google.go` + `ollama.go`
 - [ ] `domain/chat/chat.go` — Message / Attachment entity + Status 常量 + 8 sentinel + Repository
 - [ ] `domain/events/types.go` — 5 个 chat 事件 struct + conversation.title_updated
-- [ ] `infra/db/schema_extras.go` — messages_fts FTS5 虚拟表 + 触发器
+- [x] `infra/db/schema_extras.go` — messages_fts FTS5 虚拟表 + 触发器（构建需 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"`）
 - [ ] `infra/store/chat/chat.go` — Store（SaveMessage / UpdateMessageStatus / LoadHistory / GetMessage / SaveAttachment）+ 集成测试
 - [ ] `infra/chat/extractor.go` — ContentExtractor 接口 + Image / PlainText / PDF / Fallback
 - [ ] `app/chat/chat.go` — Service（Send / Cancel / ListMessages / UploadAttachment + 并发控制 + Agent 构建 + 附件组装 + auto-titling + system_prompt 组装）
@@ -193,6 +193,7 @@ Electron 配置切路径 → 烟测 30 min → 删 `backend/` → 改名 `backen
 
 | 日期 | 变化 |
 |---|---|
+| 2026-04-25 | **S3 扩展"严禁藏错误"**：`_ = err` 静默跳过是严禁行为——隐藏的错误会在意想不到的地方爆发（教训：FTS5 虚拟表建失败后触发器仍建成，INSERT 时才炸）。功能不可用必须让调用方看到错误或在文档/日志明确说明 |
 | 2026-04-25 | **S12 扩展**：主文件用包名规则推广至 app / infra/store 全层；明确"仅 Service 实现接口 / 小工具函数"合并入主文件，不单独建文件 |
 | 2026-04-25 | **providers.go 归属原则**：辅助注册表放在消费它的层（非 domain）；domain 层只放 entity + sentinel + 接口 |
 | 2026-04-24 | 立 **设计原则 #7 + S14 "文档同步纪律"（最高优先级）**：每次改代码联动三处文档；发现不符立刻修 |

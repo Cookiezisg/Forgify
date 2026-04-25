@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
+	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
 	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
@@ -43,7 +44,17 @@ var errTable = map[error]errMapping{
 	// conversation domain / conversation domain 层
 	convdomain.ErrNotFound: {http.StatusNotFound, "CONVERSATION_NOT_FOUND"},
 
-	// model domain / model domain 层
+	// chat domain / chat domain 层
+	chatdomain.ErrMessageNotFound:           {http.StatusNotFound, "MESSAGE_NOT_FOUND"},
+	chatdomain.ErrStreamNotFound:            {http.StatusNotFound, "STREAM_NOT_FOUND"},
+	chatdomain.ErrStreamInProgress:          {http.StatusConflict, "STREAM_IN_PROGRESS"},
+	chatdomain.ErrProviderUnavailable:       {http.StatusBadGateway, "LLM_PROVIDER_ERROR"},
+	chatdomain.ErrAttachmentTooLarge:        {http.StatusRequestEntityTooLarge, "ATTACHMENT_TOO_LARGE"},
+	chatdomain.ErrAttachmentTypeUnsupported: {http.StatusUnsupportedMediaType, "ATTACHMENT_TYPE_UNSUPPORTED"},
+	chatdomain.ErrAttachmentParseFailed:     {http.StatusUnprocessableEntity, "ATTACHMENT_PARSE_FAILED"},
+	chatdomain.ErrVisionNotSupported:        {http.StatusUnprocessableEntity, "VISION_NOT_SUPPORTED"},
+
+	// model domain / model domain 층
 	modeldomain.ErrNotConfigured:    {http.StatusUnprocessableEntity, "MODEL_NOT_CONFIGURED"},
 	modeldomain.ErrInvalidScenario:  {http.StatusBadRequest, "INVALID_SCENARIO"},
 	modeldomain.ErrProviderRequired: {http.StatusBadRequest, "PROVIDER_REQUIRED"},

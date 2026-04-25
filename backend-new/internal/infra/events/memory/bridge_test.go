@@ -31,11 +31,11 @@ func newTestBridge(t *testing.T) (*Bridge, *observer.ObservedLogs) {
 
 // sampleToken returns a ChatToken payload for tests.
 // sampleToken 返回测试用的 ChatToken。
-func sampleToken(token string) events.ChatToken {
+func sampleToken(delta string) events.ChatToken {
 	return events.ChatToken{
 		ConversationID: "conv-1",
-		StreamID:       "stream-1",
-		Token:          token,
+		MessageID:      "msg-1",
+		Delta:          delta,
 	}
 }
 
@@ -59,8 +59,8 @@ func TestBridge_SubscribeReceivesPublishedEvent(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected ChatToken, got %T", e)
 		}
-		if token.Token != "hello" {
-			t.Errorf("token: got %q, want hello", token.Token)
+		if token.Delta != "hello" {
+			t.Errorf("token: got %q, want hello", token.Delta)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for event")
@@ -82,7 +82,7 @@ func TestBridge_FiltersByKey(t *testing.T) {
 
 	select {
 	case e := <-ch2:
-		if e.(events.ChatToken).Token != "for-two" {
+		if e.(events.ChatToken).Delta != "for-two" {
 			t.Errorf("conv-2 got wrong token: %+v", e)
 		}
 	case <-time.After(time.Second):
@@ -119,7 +119,7 @@ func TestBridge_MultipleSubscribersSameKey(t *testing.T) {
 	for i, ch := range channels {
 		select {
 		case e := <-ch:
-			if e.(events.ChatToken).Token != "broadcast" {
+			if e.(events.ChatToken).Delta != "broadcast" {
 				t.Errorf("subscriber %d: wrong token %+v", i, e)
 			}
 		case <-time.After(time.Second):

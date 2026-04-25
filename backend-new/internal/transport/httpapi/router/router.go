@@ -40,6 +40,9 @@ func New(deps Deps) http.Handler {
 	if deps.ConversationService != nil {
 		handlers.NewConversationHandler(deps.ConversationService, deps.Log).Register(mux)
 	}
+	if deps.ChatService != nil && deps.EventsBridge != nil {
+		handlers.NewChatHandler(deps.ChatService, deps.EventsBridge, deps.Log).Register(mux)
+	}
 
 	// 404 fallback — must be last so specific routes take precedence.
 	// 404 兜底——必须最后，让具体路由优先。

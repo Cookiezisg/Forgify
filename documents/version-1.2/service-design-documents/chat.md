@@ -360,23 +360,15 @@ func (Attachment) TableName() string { return "chat_attachments" }
 
 ### 5.3 FTS5 全文搜索索引
 
-在 `infra/db/schema_extras.go` 追加，对 messages.content 建 FTS5 虚拟表，支持未来"搜索对话历史"功能：
+`infra/db/schema_extras.go` 在 `messages` 表存在后自动执行，对 `content` 列建 FTS5 虚拟表：
 
 ```sql
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
-  USING fts5(content, content='messages', content_rowid='rowid');
-
-CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
-  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
-  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
-  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
-  INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
-END;
+    USING fts5(content, content='messages', content_rowid='rowid');
+-- + 三个触发器 (insert/update/delete) 保持索引与 messages 表同步
 ```
+
+**构建要求**：必须以 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"` 编译 go-sqlite3，否则启动时 Migrate 报错。
 
 ### 5.4 消息加载策略
 
@@ -837,7 +829,7 @@ GET /api/v1/events?conversationId=cv_xxx
 - [ ] `domain/events/types.go` — 追加 5 个 chat 事件 struct（含 `conversation.title_updated`）
 
 ### infra/db 层
-- [ ] `infra/db/schema_extras.go` — 追加 messages_fts FTS5 虚拟表 + 三个触发器（insert/update/delete）
+- [x] `infra/db/schema_extras.go` — messages_fts FTS5 虚拟表 + 三个触发器（需 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"` 编译）
 
 ### infra/store/chat 层
 - [ ] `infra/store/chat/chat.go` — Store（SaveMessage / UpdateMessageStatus / LoadHistory / GetMessage / SaveAttachment / GetAttachment）

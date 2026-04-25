@@ -70,3 +70,14 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	r.bytes += n
 	return n, err
 }
+
+// Flush implements http.Flusher by delegating to the underlying
+// ResponseWriter, enabling SSE streaming through the logger middleware.
+//
+// Flush 通过委托底层 ResponseWriter 实现 http.Flusher，让 SSE 流式输出
+// 能穿透 logger 中间件。
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

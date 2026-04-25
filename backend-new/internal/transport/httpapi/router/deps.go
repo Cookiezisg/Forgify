@@ -8,8 +8,10 @@ import (
 	"go.uber.org/zap"
 
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
+	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
 	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
 	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
+	"github.com/sunweilin/forgify/backend/internal/domain/events"
 )
 
 // Deps bundles everything the HTTP transport layer needs. Constructed
@@ -34,4 +36,15 @@ type Deps struct {
 	// ConversationService implements CRUD for /api/v1/conversations/*.
 	// ConversationService 为 /api/v1/conversations/* 提供 CRUD。
 	ConversationService *convapp.Service
+
+	// ChatService implements messaging, attachment upload, and Agent streaming.
+	// ChatService 实现消息收发、附件上传和 Agent 流式输出。
+	ChatService *chatapp.Service
+
+	// EventsBridge is the in-process pub-sub bus, shared between ChatService
+	// (publisher) and the SSE handler (subscriber).
+	//
+	// EventsBridge 是进程内发布-订阅总线，由 ChatService（发布方）
+	// 和 SSE handler（订阅方）共享。
+	EventsBridge events.Bridge
 }

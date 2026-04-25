@@ -94,16 +94,23 @@ type Error = {
 | DELETE | `/api/v1/api-keys/{id}` | 软删 |
 | POST | `/api/v1/api-keys/{id}:test` | 连通性测试 |
 
-#### model 🔄
+#### model ✅
 详见 [`../service-design-documents/model.md`](../service-design-documents/model.md)。用户给每个 scenario 选定 `(provider, modelID)`；Phase 2 仅 `scenario=chat`。
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET | `/api/v1/model-configs` | 列出当前用户所有 scenario 的配置 |
-| PUT | `/api/v1/model-configs/{scenario}` | upsert 指定 scenario 的配置 |
+| GET | `/api/v1/model-configs` | 列出当前用户所有 scenario 的配置（不分页，最多 ~6 条）|
+| PUT | `/api/v1/model-configs/{scenario}` | upsert 指定 scenario 的配置（200，无论创建或更新）|
 
-#### conversation ⬜
-> Phase 2 开干 conversation 时填
+#### conversation ✅
+详见 [`../service-design-documents/conversation.md`](../service-design-documents/conversation.md)。对话线程容器的 CRUD；消息历史由 chat domain 管理。
+
+| Method | Path | 用途 |
+|---|---|---|
+| POST | `/api/v1/conversations` | 创建对话（201）；title 可为空 |
+| GET | `/api/v1/conversations` | 列表（200，cursor 分页，最新优先）|
+| PATCH | `/api/v1/conversations/{id}` | 改名（200）|
+| DELETE | `/api/v1/conversations/{id}` | 软删（204）|
 
 #### chat（极简版）⬜
 > Phase 2 开干 chat 时填

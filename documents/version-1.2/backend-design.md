@@ -318,6 +318,14 @@ infra/store/apikey/apikey.go  ← 主文件（不叫 store.go）
 例外：有独立接口 + 独立具体类型 + 独立测试的子组件可以单独一个文件（如 `tester.go`）。
 仅"Service 实现某接口"或"小工具函数"这类情况，合并进主文件，不单独建文件。
 
+#### 6. 辅助注册表文件的归属
+
+`providers.go`（provider 注册表）这类"纯配置 + 查询函数"的文件，放在**消费它的层**，而非 domain 层。判断标准：
+
+> domain 层自身使用 → 放 domain；仅 app 层消费 → 放 app。
+
+`apikey/providers.go` 的所有消费者（`Service.validateCreate`、`HTTPTester.Test`）都在 app 层，domain 层的 entity / interface 不使用它，故放 `app/apikey/providers.go`。
+
 #### 3. 文件长度
 
 - < 500 行 舒服

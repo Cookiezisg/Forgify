@@ -588,70 +588,51 @@ model domain 不涉及明文凭证，安全面比 apikey 小。唯一关注：
 
 ---
 
-## 17. 实现清单（参考 apikey 7 步套路）
+## 17. 实现清单（✅ 已全部完成，2026-04-25）
 
-### domain 层
-- [ ] `internal/domain/model/model.go`
-  - `ModelConfig` struct + `TableName()`
-  - 4 个 sentinel（`ErrNotConfigured` / `ErrInvalidScenario` / `ErrProviderRequired` / `ErrModelIDRequired`）
-  - `ScenarioChat` const + `IsValidScenario` + `ListScenarios`
-  - `Repository` interface（3 个方法）
-  - `ModelPicker` interface（1 个方法）
-- [ ] `internal/domain/model/model_test.go` — IsValidScenario / ListScenarios 基本校验
+> 注：文件命名遵循 S12 更新后的规范——所有层主文件统一用包名（`model.go`，不再叫 `service.go` / `store.go`）。
 
-### infra 层
-- [ ] `internal/infra/store/model/store.go` — `Store` 实现 Repository
-  - `Upsert` 按 (user_id, scenario) 查现有 → 无则 insert / 有则 update
-  - 使用 GORM `OnConflict` 语法或手动 SELECT + INSERT/UPDATE
-- [ ] `internal/infra/store/model/store_test.go` — 集成测试
-  - CRUD + 跨用户隔离
-  - Upsert 重复调用不产生重复行
-  - GetByScenario 未命中返 ErrNotConfigured
-- [ ] `internal/infra/db/schema_extras.go` — 追加 partial UNIQUE SQL（见 §11）
+### domain 层 ✅
+- [x] `internal/domain/model/model.go` — ModelConfig struct + TableName + 4 sentinel + ScenarioChat + IsValidScenario + ListScenarios + Repository（3 方法）+ ModelPicker（1 方法）
+- [x] `internal/domain/model/model_test.go` — 3 个单测（valid/invalid 校验 + ListScenarios 一致性守卫）
 
-### app 层
-- [ ] `internal/app/model/service.go` — Service（List / Upsert + 校验 + ID 生成）+ UpsertInput struct
-- [ ] `internal/app/model/modelpicker.go` — Service 实现 `modeldomain.ModelPicker`（PickForChat）+ `var _` 守护
-- [ ] `internal/app/model/service_test.go` — 单测（fake repo）
-  - Upsert 成功 / 4 种校验错误 / nil logger panic 守护
-  - PickForChat 成功 / ErrNotConfigured
+### infra 层 ✅
+- [x] `internal/infra/store/model/model.go` — Store 实现 Repository（GetByScenario / List / Upsert）
+  - Upsert = GORM `Save()`（INSERT on new PK / UPDATE on existing PK）
+  - Service 负责"查现有 → 决定 insert or update"逻辑，store 只做最终持久化
+  - **partial UNIQUE 暂缓**：GORM 全索引在当前 Upsert 模式下等价（无 delete+recreate 路径）
+- [x] `internal/infra/store/model/model_test.go` — 9 个集成测试（CRUD / 跨用户隔离 / 唯一约束守卫）
 
-### transport 层
-- [ ] `internal/transport/httpapi/handlers/model.go` — `ModelConfigHandler` + 2 endpoint + Register
-- [ ] `internal/transport/httpapi/handlers/model_test.go` — E2E（真 SQLite + Service + InjectUserID）
-  - GET 空 → `{data:[]}`
-  - PUT 成功 / INVALID_SCENARIO / PROVIDER_REQUIRED / MODEL_ID_REQUIRED / INVALID_REQUEST
-  - PUT 覆盖：同 scenario 连续 PUT 只保留一条
-  - 跨用户隔离（两个不同的 userID 的 ctx 互不干扰）
+### app 层 ✅
+- [x] `internal/app/model/model.go` — Service（List / Upsert + 校验 + ID 生成 + PickForChat + nil logger 守护）
+  - **`modelpicker.go` 取消**：PickForChat 3 行，合并入 `model.go`；`var _ modeldomain.ModelPicker = (*Service)(nil)` 守护保留
+- [x] `internal/app/model/model_test.go` — 12 个单测（fake repo）
 
-### 配套基础设施
-- [ ] `internal/transport/httpapi/response/errmap.go` — 加 4 条映射
-- [ ] `internal/transport/httpapi/router/deps.go` — 加 `ModelService *modelapp.Service` 字段
-- [ ] `internal/transport/httpapi/router/router.go` — 条件注册 handler（nil-tolerant）
-- [ ] `cmd/server/main.go` — 装配 `modelstore.New(gdb)` → `modelapp.NewService(...)` → 传 `router.Deps`
-- [ ] `cmd/server/main.go` — `db.Migrate(gdb, &apikeydomain.APIKey{}, &modeldomain.ModelConfig{})` 追加
+### transport 层 ✅
+- [x] `internal/transport/httpapi/handlers/model.go` — ModelConfigHandler + GET + PUT + Register
+- [x] `internal/transport/httpapi/handlers/model_test.go` — 7 个 E2E 契约测试（真 SQLite + Service + InjectUserID）
 
-### 验收
-- [ ] 全仓 `go test ./...` 零失败
-- [ ] `go vet ./...` 零警告
-- [ ] `go build ./...` 通过
-- [ ] `-race` 检测通过
-- [ ] curl 冒烟：
-  1. `GET /api/v1/model-configs` → `{data:[]}`
-  2. `PUT /api/v1/model-configs/chat` with `{"provider":"openai","modelId":"gpt-4o"}` → 200
-  3. `GET /api/v1/model-configs` → 1 条
-  4. `PUT /api/v1/model-configs/chat` with `{"provider":"anthropic","modelId":"claude-3-5-sonnet-latest"}` → 200 覆盖
-  5. `GET /api/v1/model-configs` → 还是 1 条，但 provider 变了
-  6. `PUT /api/v1/model-configs/workflow_llm` → 400 INVALID_SCENARIO
+### 配套基础设施 ✅
+- [x] `internal/transport/httpapi/response/errmap.go` — 4 条 model sentinel 映射
+- [x] `internal/transport/httpapi/router/deps.go` — `ModelService *modelapp.Service` 字段
+- [x] `internal/transport/httpapi/router/router.go` — 条件注册（nil-tolerant）
+- [x] `cmd/server/main.go` — `modelstore.New(gdb)` → `modelapp.NewService(...)` → `router.Deps`；`db.Migrate` 追加 `&modeldomain.ModelConfig{}`
+
+### 验收 ✅
+- [x] 全仓 `go test -count=1 -race ./...` 零失败
+- [x] `go vet ./...` 零警告
+- [x] `go build ./...` 通过
+- [x] curl 冒烟全通：GET 空 / PUT chat → 200 / GET 验 1 条 / PUT 覆盖 anthropic / GET 验 provider 变 / PUT workflow_llm → 400 INVALID_SCENARIO
 
 ---
 
 ## 18. 遗留 / 未来
 
-### 设计决定未决（实现前再定）
+### 设计决定（已落定）
 
-- **软删 vs 硬删**：ModelConfig 是设置型资源，审计价值低。可以**硬删**省掉 partial UNIQUE 的 schema_extras 复杂度。但为和 apikey 保持一致（D1 规范），目前设计保留软删 + partial UNIQUE。**实现时可再商量**。
-- **Upsert 方式**：GORM 的 `Clauses(clause.OnConflict{UpdateAll: true})` vs 手动 SELECT + Update/Insert。前者更简洁，后者更可控。**实现时决定**。
+- **软删保留**：ModelConfig 保持 `gorm.DeletedAt` 软删，与 D1 规范一致。
+- **Upsert 方式**：Service 先 `GetByScenario` 判断存在性，再调 `repo.Upsert(m)`（GORM `Save()`）。比 `OnConflict` 更可控，Service 层显式决定 insert vs update 路径。
+- **partial UNIQUE 暂缓**：当前 Upsert 模式无 "delete+recreate 同一 scenario" 路径，GORM 全索引已足够。待有删除场景时在 `schema_extras.go` 追加。
 
 ### backlog
 

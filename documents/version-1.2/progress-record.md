@@ -9,7 +9,7 @@
 
 ---
 
-## 1. 当前快照（截止 2026-04-24）
+## 1. 当前快照（截止 2026-04-25）
 
 ### 1.1 Phase 完成度总览
 
@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | **Phase 0** | 骨架（go mod + main + /health） | 4h | ✅ | 2026-04-22 |
 | **Phase 1** | 基础 infra 7 件套（GORM / logger / crypto / events / middleware / response / pagination） | 6h | ✅ 72 测试 | 2026-04-23 |
-| **Phase 2** | 基础对话能力（apikey / model / conversation / chat 极简） | ~11h | 🚧 进行中 | - |
+| **Phase 2** | 基础对话能力（apikey / model / conversation / chat 极简） | ~11h | 🚧 进行中（chat 待做）| - |
 | **Phase 3** | 工具锻造（forge / attachment / tool / chat 加 tool-calling） | ~12h | ⬜ | - |
 | **Phase 4** | 工作流（workflow / flowrun / 节点 / scheduler / trigger） | ~20h | ⬜ | - |
 | **Phase 5** | 智能化（knowledge / intent / mcp / skill / chat 终极版） | ~15h | ⬜ | - |
@@ -28,24 +28,24 @@
 | Domain | 状态 | 说明 |
 |---|---|---|
 | **apikey** | ✅ 全部完成 | 7 步套路跑完：domain → store → tester → service → handler → 装配 → curl 冒烟 |
-| **model** | 🔄 设计已定，代码未开 | Q1/Q2/Q3 3 个设计选择已拍板；详设计待写入 `service-design-documents/model.md` |
-| **conversation** | ⬜ 未开始 | |
+| **model** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
+| **conversation** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
 | **chat**（极简版，不带 tool calling）| ⬜ 未开始 | Tool calling 留到 Phase 3 |
 
 ### 1.3 代码库统计
 
-- **测试总数**：100+ 全绿
+- **测试总数**：~170 全绿
   - apikey 相关：61（app 38 + store 18 + domain 5）
-  - 其他（infra / middleware / router / pagination / crypto / events）：~40
-- **质量门（每 domain 落地必过）**：`go vet ./...` 零警告、`go build ./...` 通过、`go test -count=1 -race ./...` 全绿
-- **apikey 5 端点 curl 冒烟通过**（`:test` 待用户用真 key 验证）
+  - model 相关：28（app 12 + store 9 + domain 3 + handler 7）
+  - conversation 相关：28（app 11 + store 11 + handler 6）
+  - 其他（infra / middleware / router / pagination / crypto / events）：~55
+- **质量门**：`go vet ./...` 零警告、`go build ./...` 通过、`go test -count=1 -race ./...` 全绿
+- **curl 冒烟通过**：apikey 4/5 端点 + model 6 场景 + conversation 全部端点
 
 ### 1.4 紧接着要干的
 
-1. 写 `service-design-documents/model.md`（按 apikey.md 结构）
-2. 按 apikey 7 步套路实现 model domain（估 ~1.5h）
-3. 再进 conversation domain
-4. 最后 chat 极简版（端到端调通 `chat → model → apikey → eino → SSE`）
+1. `service-design-documents/chat.md` 详设计
+2. 按 7 步套路实现 chat 极简版（端到端调通 `handler → chat.Service.Send → model.PickForChat → apikey.ResolveCredentials → eino.Stream → SSE 推 chat.token`）
 
 ---
 
@@ -87,6 +87,12 @@
 
 | 日期 | 内容 |
 |---|---|
+| 2026-04-25 | **[arch-fix] providers.go 归属修正**：`providers.go`（11 provider 注册表 + TestMethod 枚举 + ProviderMeta）从 `domain/apikey/` 迁移到 `app/apikey/`。理由：所有消费者（Service.validateCreate + HTTPTester）都在 app 层，domain 层自身不使用；符合 Go "接口在消费方" 原则。同步修正 tester.go / apikey.go 里的 `apikeydomain.TestMethod*` / `apikeydomain.GetProviderMeta` → 同包直接调用。`domain/apikey/apikey.go` 现在只剩 entity + sentinel + Repository + KeyProvider 接口，职责纯净 |
+| 2026-04-25 | **[arch] S12 文件命名规范扩展**：主文件用包名的规则从 domain 层扩展到 app / infra/store 全部三层。`app/apikey/service.go` → `apikey.go`；`app/model/service.go + modelpicker.go` → `model.go`（合并，PickForChat 仅 3 行不值得单独文件）；`infra/store/*/store.go` → `*/apikey.go` / `*/model.go`。规则写入 `backend-design.md §S12`：仅"引入新接口 + 独立实现 + 独立测试"的子组件才单独文件（如 `tester.go`）；否则合并入主文件 |
+| 2026-04-25 | **[arch] app/apikey 文件整合**：`keyprovider.go` + `mask.go` 合并入 `apikey.go`（ResolveCredentials/MarkInvalid 是 Service 实现已有接口，MaskKey 是 Service 专用工具，均无理由单独文件）；`service_test.go` + `mask_test.go` 合并入 `apikey_test.go` |
+| 2026-04-25 | **Phase 2 model domain 完成**：7 步套路全跑完。domain（ModelConfig + 4 sentinel + ScenarioChat + IsValidScenario + Repository + ModelPicker）→ store（Upsert/GetByScenario/List，9 集成测试）→ app（Service + PickForChat + UpsertInput，12 单测）→ handler（GET + PUT，7 E2E 测试）→ errmap 4 条 → 装配 → curl 冒烟 6 场景全通。决定：Upsert 用 Service 层 SELECT+判断+Save，store 只做 GORM Save()；partial UNIQUE 暂缓（无 delete+recreate 路径）|
+| 2026-04-25 | **Phase 2 conversation domain 完成**：7 步套路全跑完。domain（Conversation + ErrNotFound + Repository）→ store（Save/Get/List cursor分页/Delete 软删，11 集成测试）→ app（Service Create/List/Rename/Delete，11 单测）→ handler（POST/GET/PATCH/DELETE，6 E2E 测试）→ errmap 1 条 → 装配 → 全仓测试通过。Conversation 是纯 CRUD 线程容器，不含消息——消息历史由 Phase 2 chat 管 |
+| 2026-04-25 | **[doc-fix] 文档补全**：本轮开发漏更新文档，现统一补齐：model.md §17 实现清单全勾 ✅ + §18 遗留决定落地；新建 conversation.md 完整详设计（13 节）；api-design.md / database-design.md / error-codes.md 同步 model ✅ + conversation ✅；progress-record.md 补 2026-04-25 全部条目 |
 | 2026-04-24 | **Phase 2 Task #1** 完成：apikey domain 层。试过扁平 / 按角色子包（types/ports/registry/tools）/ Go 社区味子包多种结构，最终定**平铺**：`apikey.go`（entity + 常量 + errors + Credentials + ListFilter + Repository + KeyProvider）+ `providers.go`（11 provider 白名单）。`mask` 搬到 app 层（只 Service 用）。立 **S12 包结构**（domain 平铺按概念拆，禁子目录）。14 新测试 |
 | 2026-04-24 | **Phase 2 Task #2** 完成：apikey Repository 实现 + 18 集成测试（CRUD / 跨用户隔离 / 分页 / GetByProvider 排序）。3 相关重构：(1) `infra/gorm/` → `infra/db/`；(2) Repository 实现最终落 `infra/store/<domain>/`（Clean Architecture 正统）；(3) 立 **S13 包命名**（三层同名 + `<name><role>` 别名：apikeydomain / apikeyapp / apikeystore）|
 | 2026-04-24 | **Phase 2 Task #3** 完成：`app/apikey/tester.go` ConnectivityTester + HTTPTester + 21 httptest 用例。4 种 HTTP 模式分派（openai-compatible `/models` / anthropic `/v1/messages` 1-token / google `/v1beta/models?key=` / ollama `/api/tags`）+ custom 按 APIFormat 二选一。约定：网络/401/5xx/ctx 取消 → `TestResult{OK:false}`；未知 provider / 必填 baseURL 缺 → Go error（程序 bug 才上抛）。审计发现 S13 别名两处违规（tester 新 + **pre-existing** store）一并修。立 **"spec 优先于邻居文件"** 审计纪律 |
@@ -103,23 +109,17 @@
 
 ## 3. Phase 2 剩余任务清单
 
-### 3.1 model domain（~1.5h）
+### 3.1 model domain ✅（2026-04-25 完成）
 
-**设计已拍板**：Q1/Q2/Q3 三项决策已敲定，"反校验剧场"原则已立。
+- [x] 详设计写入 `service-design-documents/model.md`
+- [x] domain / store / app / handler 全套实现
+- [x] 装配 + curl 冒烟
 
-- [ ] **#1** 填 `service-design-documents/model.md` 详设计（参考 apikey.md 结构）
-- [ ] **#2** `domain/model/model.go` —— ModelConfig entity + `ScenarioChat` const + Repository 接口 + ModelPicker 接口 + 4 sentinel
-- [ ] **#3** `infra/store/model/store.go` + 集成测试（CRUD + Upsert + GetByScenario + 用户隔离）
-- [ ] **#4** `app/model/service.go` —— CRUD + 实现 ModelPicker + 单测（fake repo）
-- [ ] **#5** `handlers/model.go` —— GET + PUT 两端点 + E2E 契约测试
-- [ ] **#6** 装配：errmap 加 4 条 + `router.Deps` 加 `ModelService` + main.go 装配 + `db.Migrate` 加 `&modeldomain.ModelConfig{}`
-- [ ] **#7** curl 冒烟：`PUT chat=openai/gpt-4o → GET 验 → PUT 切 anthropic → GET 再验`
+### 3.2 conversation domain ✅（2026-04-25 完成）
 
-### 3.2 conversation domain（~3h）
-
-- [ ] 填 `service-design-documents/conversation.md` 详设计
-- [ ] 端到端推演（新建对话 → 发消息 → 列表 / 归档 / 改名）
-- [ ] Phase 2 需要支持："对话绑定到工具 / 工作流"的 polymorphism 留到 Phase 3（先只做最简对话 CRUD）
+- [x] 详设计写入 `service-design-documents/conversation.md`
+- [x] domain / store / app / handler 全套实现（CRUD 4 端点）
+- [x] 装配 + 测试全绿
 
 ### 3.3 chat 极简版（~5h）
 
@@ -155,6 +155,8 @@ Electron 配置切路径 → 烟测 30 min → 删 `backend/` → 改名 `backen
 
 | 日期 | 变化 |
 |---|---|
+| 2026-04-25 | **S12 扩展**：主文件用包名规则推广至 app / infra/store 全层；明确"仅 Service 实现接口 / 小工具函数"合并入主文件，不单独建文件 |
+| 2026-04-25 | **providers.go 归属原则**：辅助注册表放在消费它的层（非 domain）；domain 层只放 entity + sentinel + 接口 |
 | 2026-04-24 | 立 **设计原则 #7 + S14 "文档同步纪律"（最高优先级）**：每次改代码联动三处文档；发现不符立刻修 |
 | 2026-04-24 | 立 **设计原则 #6 "反校验剧场"**（单开发者 + 本地 Electron 不搞前端已覆盖的校验）|
 | 2026-04-24 | 立 **"spec 优先于邻居文件"** 审计纪律（避免复制 pre-existing 违规）|

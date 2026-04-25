@@ -75,22 +75,23 @@ handler 侧调 `response.FromDomainError(w, log, err)` 自动翻译。
 | `API_KEY_TEST_FAILED` | 422 | `apikey.ErrTestFailed` | 连通性测试失败 | ✅ |
 | `API_KEY_INVALID` | 401 | `apikey.ErrInvalid` | 使用时 provider 返回 401 | ✅ |
 
-#### model 🔄
+#### model ✅
 详见 [`../service-design-documents/model.md`](../service-design-documents/model.md)。
 
 | Code | HTTP | Sentinel | 场景 | 状态 |
 |---|---|---|---|---|
-| `MODEL_NOT_CONFIGURED` | 422 | `model.ErrNotConfigured` | chat 调 PickForChat 时用户未配过 | ⬜ |
-| `INVALID_SCENARIO` | 400 | `model.ErrInvalidScenario` | PUT path 的 scenario 不在白名单 | ⬜ |
-| `PROVIDER_REQUIRED` | 400 | `model.ErrProviderRequired` | PUT body provider 空 | ⬜ |
-| `MODEL_ID_REQUIRED` | 400 | `model.ErrModelIDRequired` | PUT body modelId 空 | ⬜ |
+| `MODEL_NOT_CONFIGURED` | 422 | `model.ErrNotConfigured` | chat 调 PickForChat 时用户未配过 | ✅ |
+| `INVALID_SCENARIO` | 400 | `model.ErrInvalidScenario` | PUT path 的 scenario 不在白名单 | ✅ |
+| `PROVIDER_REQUIRED` | 400 | `model.ErrProviderRequired` | PUT body provider 空 | ✅ |
+| `MODEL_ID_REQUIRED` | 400 | `model.ErrModelIDRequired` | PUT body modelId 空 | ✅ |
 
-#### conversation ⬜
+#### conversation ✅
+详见 [`../service-design-documents/conversation.md`](../service-design-documents/conversation.md)。
 
 | Code | HTTP | Sentinel | 场景 | 状态 |
 |---|---|---|---|---|
-| `CONVERSATION_NOT_FOUND` | 404 | `conversation.ErrNotFound` | id 查不到 | ⬜ |
-| `MESSAGE_NOT_FOUND` | 404 | `conversation.ErrMessageNotFound` | 消息 id 查不到 | ⬜ |
+| `CONVERSATION_NOT_FOUND` | 404 | `conversation.ErrNotFound` | id 查不到（Get/Rename/Delete）| ✅ |
+| `MESSAGE_NOT_FOUND` | 404 | `conversation.ErrMessageNotFound` | 消息 id 查不到（Phase 2 未用）| ⬜ |
 
 #### chat ⬜
 

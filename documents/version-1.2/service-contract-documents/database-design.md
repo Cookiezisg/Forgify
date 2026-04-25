@@ -52,11 +52,14 @@ GORM tag 表达不了的都在这里：
 详见 [`../service-design-documents/apikey.md`](../service-design-documents/apikey.md) §11。
 主键 `aki_<16hex>`；软删（`DeletedAt`）；全索引 `(user_id)` + `(user_id, provider)` + `(deleted_at)`（目前未走部分索引 `WHERE deleted_at IS NULL`，见 backlog）。敏感字段 `key_encrypted`（AES-GCM `v1:` 前缀，`json:"-"` 守护永不上线）+ `key_masked` 冗余展示。不加 `UNIQUE(user_id, provider)`，允许同 provider 多 key。Provider / TestStatus 的 DB 层 CHECK 约束**未加**，由 app 层校验。
 
-#### `model_configs` 🔄
-详见 [`../service-design-documents/model.md`](../service-design-documents/model.md) §9。
-主键 `mc_<16hex>`；软删；**设计**：`UNIQUE(user_id, scenario) WHERE deleted_at IS NULL` 保证每用户每 scenario 最多 1 条活跃（partial UNIQUE 需由 `schema_extras.go` 补 raw SQL，GORM uniqueIndex tag 的 `where:` 子句支持不稳）。Scenario 白名单在 app 层校验，随 Phase 扩张，DB 不 CHECK。
+#### `model_configs` ✅
+详见 [`../service-design-documents/model.md`](../service-design-documents/model.md) §11。
+主键 `mc_<16hex>`；软删（`deleted_at`）；GORM 全唯一索引 `UNIQUE(user_id, scenario)`（partial UNIQUE 暂缓，见 §17 决定）。Scenario 白名单 app 层校验，DB 不 CHECK。
 
-#### `conversations` ⬜
+#### `conversations` ✅
+详见 [`../service-design-documents/conversation.md`](../service-design-documents/conversation.md) §8。
+主键 `cv_<16hex>`；软删（`deleted_at`）；`user_id` 索引（列表查询）+ `deleted_at` 索引（GORM 软删 filter）。Title 允许空字符串（Phase 5 自动命名）。无额外 CHECK 约束。
+
 #### `messages` ⬜
 
 ---

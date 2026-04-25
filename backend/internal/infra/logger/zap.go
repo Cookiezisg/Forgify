@@ -12,10 +12,12 @@ import (
 
 // New builds a zap logger. dev=true: colored console (for local dev).
 // dev=false: JSON to stdout with ISO8601 timestamps (for prod).
+// Optional extras (e.g. LogBroadcaster) are tee'd alongside the main core.
 //
 // New 构造 zap logger。dev=true：彩色控制台（本地开发）。
 // dev=false：JSON 输出到 stdout 带 ISO8601 时间戳（生产）。
-func New(dev bool) (*zap.Logger, error) {
+// 可选的 extras（如 LogBroadcaster）与主 core tee 并行输出。
+func New(dev bool, extras ...zapcore.Core) (*zap.Logger, error) {
 	var cfg zap.Config
 	if dev {
 		cfg = zap.NewDevelopmentConfig()
@@ -26,9 +28,15 @@ func New(dev bool) (*zap.Logger, error) {
 		cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	}
 
-	logger, err := cfg.Build()
+	log, err := cfg.Build()
 	if err != nil {
 		return nil, fmt.Errorf("build zap logger: %w", err)
 	}
-	return logger, nil
+	if len(extras) > 0 {
+		allCores := append([]zapcore.Core{log.Core()}, extras...)
+		log = log.WithOptions(zap.WrapCore(func(_ zapcore.Core) zapcore.Core {
+			return zapcore.NewTee(allCores...)
+		}))
+	}
+	return log, nil
 }

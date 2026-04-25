@@ -6,12 +6,14 @@ package router
 
 import (
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
 	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
 	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
 	"github.com/sunweilin/forgify/backend/internal/domain/events"
+	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 )
 
 // Deps bundles everything the HTTP transport layer needs. Constructed
@@ -47,4 +49,34 @@ type Deps struct {
 	// EventsBridge 是进程内发布-订阅总线，由 ChatService（发布方）
 	// 和 SSE handler（订阅方）共享。
 	EventsBridge events.Bridge
+
+	// ── Dev-only fields (nil/zero when Dev=false) ─────────────────────────────
+
+	// Dev enables the /dev/* route group (static files, logs SSE, SQL, collections).
+	// Dev 启用 /dev/* 路由组（静态文件、日志 SSE、SQL、集合）。
+	Dev bool
+
+	// DB is the raw GORM handle used by the /dev/sql endpoint.
+	// DB 是 /dev/sql 端点使用的原始 GORM 句柄。
+	DB *gorm.DB
+
+	// LogBroadcaster fans backend log entries to /dev/logs SSE subscribers.
+	// LogBroadcaster 把后端日志条目扇出给 /dev/logs SSE 订阅者。
+	LogBroadcaster *logger.LogBroadcaster
+
+	// CollectionsDir is the filesystem path to testend/collections/*.yaml.
+	// CollectionsDir 是 testend/collections/*.yaml 的文件系统路径。
+	CollectionsDir string
+
+	// IntegrationDir is the filesystem path to the testend/ directory,
+	// served as static files under /dev/static/.
+	// IntegrationDir 是 testend/ 目录的文件系统路径，
+	// 以 /dev/static/ 对外提供静态文件服务。
+	IntegrationDir string
+
+	// Port is the actual TCP port the server is listening on.
+	// Used by the collections test runner to call back into the local backend.
+	// Port 是服务器实际监听的 TCP 端口。
+	// 供集合测试运行器回调本地后端使用。
+	Port int
 }

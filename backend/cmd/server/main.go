@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
@@ -44,10 +45,24 @@ import (
 func main() {
 	port := flag.Int("port", 0, "HTTP port (0 = pick a free port, print it)")
 	dataDir := flag.String("data-dir", "", "Data directory (empty = in-memory SQLite)")
-	dev := flag.Bool("dev", false, "Development mode (colored console logs)")
+	dev := flag.Bool("dev", false, "Development mode (colored console logs + /dev/* routes)")
+	collectionsDir := flag.String("collections-dir", "../testend/collections", "Path to YAML test collections (dev mode)")
+	integrationDir := flag.String("integration-dir", "../testend", "Path to testend/ directory served at /dev/static/ (dev mode)")
 	flag.Parse()
 
-	log, err := logger.New(*dev)
+	// In dev mode, wire a LogBroadcaster as a second Zap core so that all
+	// log entries are also streamed to the /dev/logs SSE endpoint.
+	//
+	// dev 模式下，把 LogBroadcaster 作为第二个 Zap core 接入，让所有日志
+	// 同时流向 /dev/logs SSE 端点。
+	var broadcaster *logger.LogBroadcaster
+	var logExtras []zapcore.Core
+	if *dev {
+		broadcaster = logger.NewLogBroadcaster()
+		logExtras = []zapcore.Core{broadcaster}
+	}
+
+	log, err := logger.New(*dev, logExtras...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
 		os.Exit(1)
@@ -118,15 +133,8 @@ func main() {
 		log,
 	)
 
-	handler := router.New(router.Deps{
-		Log:                 log,
-		APIKeyService:       apikeyService,
-		ModelService:        modelService,
-		ConversationService: convService,
-		ChatService:         chatService,
-		EventsBridge:        eventsBridge,
-	})
-
+	// Listen first so we know the actual port before building router.Deps.
+	// 先监听，才能在构建 router.Deps 前知道实际端口。
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
 		log.Error("listen", zap.Error(err))
@@ -137,6 +145,21 @@ func main() {
 	// Electron reads this line from stdout to discover the port.
 	// Electron 从 stdout 读取此行发现端口。
 	fmt.Printf("BACKEND_PORT=%d\n", actualPort)
+
+	handler := router.New(router.Deps{
+		Log:                 log,
+		APIKeyService:       apikeyService,
+		ModelService:        modelService,
+		ConversationService: convService,
+		ChatService:         chatService,
+		EventsBridge:        eventsBridge,
+		Dev:                 *dev,
+		DB:                  gdb,
+		LogBroadcaster:      broadcaster,
+		CollectionsDir:      *collectionsDir,
+		IntegrationDir:      *integrationDir,
+		Port:                actualPort,
+	})
 
 	srv := &http.Server{
 		Handler:     handler,

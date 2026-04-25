@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forgify Tester</title>
+  <link rel="stylesheet" href="/dev/static/style.css">
+</head>
+<body x-data="appRoot()">
+
+  <!-- ── Top Bar ─────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <span class="topbar-title">FORGIFY TESTER</span>
+    <div class="topbar-right">
+      <button class="btn-icon" @click="showSettings = true" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <!-- ── Settings Modal ──────────────────────────────────────────── -->
+  <div class="modal-overlay" x-show="showSettings" x-cloak @click.self="closeSettings()"
+       x-data="settingsPanel()" @close-settings.window="showSettings = false">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span x-show="msg" x-text="msg" style="font-size:11px;color:var(--green)"></span>
+          <button class="btn-icon" @click="$dispatch('close-settings')">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+
+        <!-- Model Config -->
+        <div class="modal-section">
+          <h3>Chat Model</h3>
+          <template x-if="!editingModel && modelConfig">
+            <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+              <span style="color:var(--accent)" x-text="modelConfig.provider"></span>
+              <span x-text="modelConfig.modelId"></span>
+              <button class="btn btn-ghost btn-sm" @click="editingModel=true">Edit</button>
+            </div>
+          </template>
+          <template x-if="editingModel || !modelConfig">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div class="form-row">
+                <label>Provider</label>
+                <input class="form-input" x-model="modelProvider" placeholder="openai">
+              </div>
+              <div class="form-row">
+                <label>Model ID</label>
+                <input class="form-input" x-model="modelID" placeholder="gpt-4o-mini">
+              </div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-primary btn-sm" @click="saveModel()" :disabled="saving">Save</button>
+                <button class="btn btn-ghost btn-sm" @click="editingModel=false" x-show="modelConfig">Cancel</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- API Keys -->
+        <div class="modal-section">
+          <h3>API Keys</h3>
+          <template x-for="k in apiKeys" :key="k.id">
+            <div class="apikey-row">
+              <span class="provider" x-text="k.provider"></span>
+              <span class="masked" x-text="k.keyMasked"></span>
+              <span :class="'status-'+(k.testStatus==='ok'?'ok':k.testStatus==='error'?'err':'pend')"
+                    x-text="k.testStatus"></span>
+              <button class="btn btn-danger btn-sm" @click="deleteKey(k.id)">✕</button>
+            </div>
+          </template>
+          <div x-show="!showAddKey" style="margin-top:8px">
+            <button class="btn btn-ghost btn-sm" @click="showAddKey=true">+ Add API Key</button>
+          </div>
+          <div x-show="showAddKey" style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+            <div class="form-row">
+              <label>Provider</label>
+              <select class="form-input" x-model="newProvider">
+                <template x-for="p in providers" :key="p.value">
+                  <option :value="p.value" x-text="p.label"></option>
+                </template>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Display Name (optional)</label>
+              <input class="form-input" x-model="newDisplayName" placeholder="my key">
+            </div>
+            <div class="form-row">
+              <label>API Key</label>
+              <input class="form-input" type="password" x-model="newKey" placeholder="sk-...">
+            </div>
+            <div class="form-row" x-show="needsBaseURL()">
+              <label>Base URL</label>
+              <input class="form-input" x-model="newBaseURL" placeholder="http://localhost:11434">
+            </div>
+            <div class="form-row" x-show="newProvider === 'custom'">
+              <label>API Format</label>
+              <select class="form-input" x-model="newAPIFormat">
+                <option value="openai-compatible">OpenAI-compatible</option>
+                <option value="anthropic-compatible">Anthropic-compatible</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-primary btn-sm" @click="addKey()" :disabled="saving">Add</button>
+              <button class="btn btn-ghost btn-sm" @click="showAddKey=false">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main Layout ─────────────────────────────────────────────── -->
+  <div class="layout">
+
+    <!-- Left: Conversation Sidebar -->
+    <aside class="sidebar" x-data="sidebar()">
+      <div class="sidebar-header">
+        <span>Conversations</span>
+        <button class="btn-icon" @click="create()" title="New conversation">＋</button>
+      </div>
+      <div class="sidebar-list">
+        <template x-for="c in conversations" :key="c.id">
+          <div class="conv-item" :class="{active: c.id === selected}" @click="select(c.id, c.title)">
+            <span class="conv-title" x-text="c.title || '(new conversation)'"></span>
+            <span class="conv-time" x-text="formatTime(c.updatedAt)"></span>
+          </div>
+        </template>
+        <div x-show="conversations.length === 0"
+             style="padding:12px;font-size:11px;color:var(--text-mute)">
+          No conversations — click ＋ to start
+        </div>
+      </div>
+    </aside>
+
+    <!-- Drag handle: sidebar ↔ chat -->
+    <div class="drag-handle" data-panel="sidebar"></div>
+
+    <!-- Center: Chat -->
+    <section class="chat-area" x-data="chatPanel()">
+      <div class="chat-header">
+        <span x-text="conversationId ? (title || '(untitled)') : 'Select or create a conversation'"></span>
+        <span x-show="streaming" style="color:var(--accent);font-size:11px">● streaming</span>
+      </div>
+
+      <template x-if="!conversationId">
+        <div class="chat-empty">Select a conversation from the sidebar</div>
+      </template>
+
+      <template x-if="conversationId">
+        <div style="display:contents">
+          <div class="chat-messages">
+            <template x-for="m in messages" :key="m.id">
+              <div class="msg" :class="m.role">
+                <span class="msg-role" x-text="m.role"></span>
+                <div class="msg-bubble" x-text="m.content || (m.status==='streaming' ? '…' : '')"></div>
+                <span class="msg-status" :class="m.status"
+                      x-show="m.status !== 'completed'"
+                      x-text="m.status"></span>
+              </div>
+            </template>
+          </div>
+          <div class="chat-input-area">
+            <textarea class="chat-input" x-model="input"
+              placeholder="Message… (Enter to send, Shift+Enter for newline)"
+              @keydown="handleKeydown($event)" rows="1"></textarea>
+            <button class="btn btn-primary" @click="send()" :disabled="streaming || !input.trim()">Send</button>
+            <button class="btn btn-ghost" @click="cancel()" x-show="streaming">Stop</button>
+          </div>
+        </div>
+      </template>
+    </section>
+
+    <!-- Drag handle: chat ↔ tools -->
+    <div class="drag-handle" data-panel="tools"></div>
+
+    <!-- Right: Tools Panel -->
+    <aside class="tools-panel">
+      <div class="tabs-bar">
+        <button class="tab-btn" :class="{active: activeRightTab==='sse'}"   @click="selectTab('sse')">SSE</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='logs'}"  @click="selectTab('logs')">Logs</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='sql'}"   @click="selectTab('sql')">SQL</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='tests'}" @click="selectTab('tests')">Tests</button>
+      </div>
+
+      <!-- SSE Tab -->
+      <div class="tab-content" x-show="activeRightTab==='sse'" x-data="sseTab()">
+        <div class="panel-toolbar">
+          <span style="font-size:11px;color:var(--text-mute)"
+                x-text="conversationId ? 'conv: '+conversationId.slice(0,12)+'…' : 'No conversation'"></span>
+          <button class="btn btn-ghost btn-sm" @click="clear()">Clear</button>
+        </div>
+        <div class="event-log">
+          <template x-for="(ev, i) in events" :key="i">
+            <div class="event-item">
+              <span class="event-name" :class="cssClass(ev.type)" x-text="ev.type"></span>
+              <span class="event-time" x-text="ev.time"></span>
+              <pre class="event-data" x-text="pretty(ev.data)"></pre>
+            </div>
+          </template>
+          <div x-show="events.length === 0"
+               style="color:var(--text-mute);font-size:11px;padding:8px">Waiting for events…</div>
+        </div>
+      </div>
+
+      <!-- Logs Tab -->
+      <div class="tab-content" x-show="activeRightTab==='logs'" x-data="logsTab()">
+        <div class="panel-toolbar">
+          <input class="filter-input" x-model="filter" placeholder="Filter logs…">
+          <button class="btn btn-ghost btn-sm" @click="clear()">Clear</button>
+        </div>
+        <div class="event-log">
+          <template x-for="(e, i) in filtered" :key="i">
+            <div class="log-item">
+              <span class="log-time" x-text="e._time"></span>
+              <span class="log-level" :class="e.level" x-text="e.level.toUpperCase().slice(0,4)"></span>
+              <span class="log-msg" x-text="e.msg"></span>
+              <span class="log-fields" x-text="fieldsStr(e.fields)"></span>
+            </div>
+          </template>
+          <div x-show="entries.length === 0"
+               style="color:var(--text-mute);font-size:11px;padding:8px">Connecting to log stream…</div>
+        </div>
+      </div>
+
+      <!-- SQL Tab -->
+      <div class="tab-content" x-show="activeRightTab==='sql'" x-data="sqlTab()">
+        <div class="sql-area">
+          <textarea class="sql-editor" x-model="sql" @keydown="handleKeydown($event)"
+            placeholder="SELECT … (Ctrl+Enter to run)"></textarea>
+          <div class="sql-shortcuts">
+            <template x-for="s in shortcuts" :key="s.label">
+              <button class="sql-shortcut" @click="setSQL(s.sql)" x-text="s.label"></button>
+            </template>
+          </div>
+          <div class="sql-run-bar">
+            <button class="btn btn-primary btn-sm" @click="run()" :disabled="loading"
+                    x-text="loading ? 'Running…' : '▶ Run'"></button>
+          </div>
+          <div class="sql-result">
+            <div class="sql-error" x-show="error" x-text="error"></div>
+            <template x-if="result">
+              <table class="sql-table">
+                <thead>
+                  <tr>
+                    <template x-for="col in result.columns" :key="col">
+                      <th x-text="col"></th>
+                    </template>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(row, ri) in result.rows" :key="ri">
+                    <tr>
+                      <template x-for="(cell, ci) in row" :key="ci">
+                        <td :title="String(cell ?? '')" x-text="fmt(cell)"></td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </template>
+          </div>
+          <div class="sql-rowcount" x-show="result"
+               x-text="(result?.rows?.length ?? 0) + ' rows'"></div>
+        </div>
+      </div>
+
+      <!-- Tests Tab -->
+      <div class="tab-content" x-show="activeRightTab==='tests'" x-data="testsTab()">
+        <div class="tests-area">
+          <div class="tests-env">
+            <label>Environment variables (KEY=VALUE, one per line)</label>
+            <textarea class="env-input" x-model="envStr" rows="2"
+              placeholder="TEST_API_KEY=sk-..."></textarea>
+          </div>
+          <div class="tests-list">
+            <template x-for="col in collections" :key="col.name">
+              <div class="collection-item">
+                <div class="collection-header">
+                  <div>
+                    <div class="collection-name" x-text="col.name"></div>
+                    <div class="collection-desc" x-text="col.description"></div>
+                  </div>
+                  <button class="btn btn-primary run-btn"
+                    @click="select(col); run()"
+                    :disabled="running"
+                    x-text="running && selected?.name===col.name ? 'Running…' : '▶ Run'">
+                  </button>
+                </div>
+                <template x-if="selected?.name === col.name && results">
+                  <div class="steps-list">
+                    <template x-for="(r, i) in results" :key="i">
+                      <div class="step-item">
+                        <span class="step-icon"
+                          :style="r.state==='pass'?'color:var(--green)':r.state==='fail'?'color:var(--red)':r.state==='running'?'color:var(--accent)':'color:var(--text-mute)'"
+                          x-text="stateIcon(r.state)"></span>
+                        <div class="step-info">
+                          <div class="step-name" x-text="r.name"></div>
+                          <div class="step-meta" x-text="r.method+' '+r.path"></div>
+                          <div class="step-result" :class="r.state"
+                            x-show="r.state==='pass'||r.state==='fail'"
+                            x-text="r.status ? r.status+' · '+r.latency+'ms' : (r.err||'')">
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <div x-show="collections.length === 0"
+                 style="padding:12px;font-size:11px;color:var(--text-mute)">
+              No collections in testend/collections/
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+  </div>
+
+  <script src="/dev/static/js/drag.js"></script>
+  <script src="/dev/static/js/app.js"></script>
+  <script src="/dev/static/js/sidebar.js"></script>
+  <script src="/dev/static/js/chat.js"></script>
+  <script src="/dev/static/js/tab-sse.js"></script>
+  <script src="/dev/static/js/tab-logs.js"></script>
+  <script src="/dev/static/js/tab-sql.js"></script>
+  <script src="/dev/static/js/tab-tests.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3/dist/cdn.min.js"></script>
+</body>
+</html>

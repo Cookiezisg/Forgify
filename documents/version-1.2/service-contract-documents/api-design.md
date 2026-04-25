@@ -77,7 +77,7 @@ type Error = {
 | Method | Path | 用途 | 状态 |
 |---|---|---|---|
 | GET | `/api/v1/health` | 存活探针（Electron 启动后读）| ✅ |
-| GET | `/api/v1/events?conversationId=xxx` | SSE 事件流 | ⬜ Phase 2 |
+| GET | `/api/v1/events?conversationId=xxx` | SSE 事件流（keep-alive ping + Last-Event-ID）| ✅ |
 
 ---
 
@@ -112,16 +112,15 @@ type Error = {
 | PATCH | `/api/v1/conversations/{id}` | 改名（200）|
 | DELETE | `/api/v1/conversations/{id}` | 软删（204）|
 
-#### chat（极简版）🔄
-详见 [`../service-design-documents/chat.md`](../service-design-documents/chat.md)。ReAct Agent 驱动，Phase 2 tools=nil（纯流式对话），Phase 3+ 注入 System Tools。
+#### chat ✅
+详见 [`../service-design-documents/chat.md`](../service-design-documents/chat.md)。Eino ReAct Agent 驱动，Phase 2 tools=nil（纯流式对话），Phase 3+ 注入 System Tools。
 
 | Method | Path | 用途 |
 |---|---|---|
 | POST | `/api/v1/attachments` | 上传附件（multipart，50MB 限制）→ 201 返回 attachment_id |
-| POST | `/api/v1/conversations/{id}/messages` | 发送消息（202，异步 Agent 运行）；body 含 `attachmentIds[]` |
+| POST | `/api/v1/conversations/{id}/messages` | 发送消息（202，队列化异步 Agent 运行）；body 含 `attachmentIds[]` |
 | DELETE | `/api/v1/conversations/{id}/stream` | 取消正在运行的 Agent（204）；404 STREAM_NOT_FOUND |
-| GET | `/api/v1/conversations/{id}/messages` | 消息历史（cursor 分页）；含 status / stopReason / tokenUsage |
-| GET | `/api/v1/events?conversationId=xxx` | SSE 事件流（keep-alive ping + Last-Event-ID）|
+| GET | `/api/v1/conversations/{id}/messages` | 消息历史（cursor 分页，ASC 时序）；含 status / stopReason / tokenUsage |
 
 ---
 

@@ -60,11 +60,11 @@ GORM tag 表达不了的都在这里：
 详见 [`../service-design-documents/conversation.md`](../service-design-documents/conversation.md) §8。
 主键 `cv_<16hex>`；软删（`deleted_at`）；`user_id` 索引。新增字段：`system_prompt TEXT`（对话级自定义系统提示词，可为空）/ `auto_titled BOOLEAN`（标记标题是 AI 自动生成的还是用户手动改的）。Title 允许空字符串，首轮完成后 auto-titling goroutine 回写。
 
-#### `messages` 🔄
-chat domain 所有；主键 `msg_<16hex>`；字段：`conversation_id`（索引）/ `user_id` / `role` / `content` / `status`（pending\|streaming\|completed\|error\|cancelled）/ `stop_reason` / `token_usage`（JSON）/ `tool_calls`（JSON）/ `tool_call_id` / `attachment_ids`（JSON 数组）。FTS5 虚拟表 `messages_fts` 已在 `schema_extras.go` 实现，`messages` 表存在后自动建索引 + 触发器。构建时需 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"`。详见 `service-design-documents/chat.md` §5。
+#### `messages` ✅
+chat domain 所有；主键 `msg_<16hex>`；字段：`conversation_id`（索引）/ `user_id` / `role`（user\|assistant\|tool）/ `content` / `status`（pending\|streaming\|completed\|error\|cancelled）/ `stop_reason` / `token_usage`（JSON）/ `tool_calls`（JSON）/ `tool_call_id` / `attachment_ids`（JSON 数组）/ 软删 `deleted_at`。FTS5 虚拟表 `messages_fts` 已在 `schema_extras.go` 实现，`messages` 表存在后自动建索引 + 3 个触发器（insert/update/delete）。构建时需 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"`。详见 `service-design-documents/chat.md` §5。
 
-#### `chat_attachments` 🔄
-chat domain 所有；主键 `att_<16hex>`；字段：`user_id` / `file_name` / `mime_type` / `size_bytes` / `storage_path`（相对 dataDir，不对外暴露）。文件实体存 `{dataDir}/attachments/{att_id}/original.{ext}`，50MB 限制。
+#### `chat_attachments` ✅
+chat domain 所有；主键 `att_<16hex>`；字段：`user_id` / `file_name` / `mime_type` / `size_bytes` / `storage_path`（相对 dataDir，json:"-" 不对外暴露）。文件实体存 `{dataDir}/attachments/{att_id}/original.{ext}`，50MB 限制。无软删（附件随对话消亡）。
 
 ---
 
@@ -111,13 +111,15 @@ chat domain 所有；主键 `att_<16hex>`；字段：`user_id` / `file_name` / `
 
 > 每完成一个 Phase 更新一次。
 
-**当前（Phase 2 进行中）**：
+**当前（Phase 2 完成）**：
 ```
-api_keys          model_configs
-   │                    │
-   │  (user_id)         │  (user_id, scenario)
-   │                    │
-   └────── 都属于 local-user ──────┘
-
-   下一步：conversations / messages 落地后补关系图
+api_keys        model_configs     conversations
+   │                 │                  │
+   │  (user_id)      │  (user_id)       │  (user_id)
+   │                 │                  │
+   └──────────────── local-user ────────┘
+                                        │ conversation_id (索引)
+                                    messages
+                                        │ att_id (attachment_ids JSON)
+                               chat_attachments
 ```

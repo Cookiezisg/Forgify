@@ -17,11 +17,10 @@
 |---|---|---|---|---|
 | **Phase 0** | 骨架（go mod + main + /health） | 4h | ✅ | 2026-04-22 |
 | **Phase 1** | 基础 infra 7 件套（GORM / logger / crypto / events / middleware / response / pagination） | 6h | ✅ 72 测试 | 2026-04-23 |
-| **Phase 2** | 基础对话能力（apikey / model / conversation / chat 极简） | ~11h | 🚧 进行中（chat 待做）| - |
+| **Phase 2** | 基础对话能力（apikey / model / conversation / chat） | ~11h | ✅ | 2026-04-25 |
 | **Phase 3** | 工具锻造（forge / attachment / tool / chat 加 tool-calling） | ~12h | ⬜ | - |
 | **Phase 4** | 工作流（workflow / flowrun / 节点 / scheduler / trigger） | ~20h | ⬜ | - |
 | **Phase 5** | 智能化（knowledge / intent / mcp / skill / chat 终极版） | ~15h | ⬜ | - |
-| **Phase 6** | 原子切换（删旧 backend / Electron 换路径） | ~2h | ⬜ | - |
 
 ### 1.2 Phase 2 子任务明细
 
@@ -30,7 +29,7 @@
 | **apikey** | ✅ 全部完成 | 7 步套路跑完：domain → store → tester → service → handler → 装配 → curl 冒烟 |
 | **model** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
 | **conversation** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
-| **chat**（极简版，不带 tool calling）| ⬜ 未开始 | Tool calling 留到 Phase 3 |
+| **chat** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
 
 ### 1.3 代码库统计
 
@@ -93,6 +92,8 @@
 | 2026-04-25 | **Phase 2 model domain 完成**：7 步套路全跑完。domain（ModelConfig + 4 sentinel + ScenarioChat + IsValidScenario + Repository + ModelPicker）→ store（Upsert/GetByScenario/List，9 集成测试）→ app（Service + PickForChat + UpsertInput，12 单测）→ handler（GET + PUT，7 E2E 测试）→ errmap 4 条 → 装配 → curl 冒烟 6 场景全通。决定：Upsert 用 Service 层 SELECT+判断+Save，store 只做 GORM Save()；partial UNIQUE 暂缓（无 delete+recreate 路径）|
 | 2026-04-25 | **Phase 2 conversation domain 完成**：7 步套路全跑完。domain（Conversation + ErrNotFound + Repository）→ store（Save/Get/List cursor分页/Delete 软删，11 集成测试）→ app（Service Create/List/Rename/Delete，11 单测）→ handler（POST/GET/PATCH/DELETE，6 E2E 测试）→ errmap 1 条 → 装配 → 全仓测试通过。Conversation 是纯 CRUD 线程容器，不含消息——消息历史由 Phase 2 chat 管 |
 | 2026-04-25 | **[doc-fix] 文档补全**：本轮开发漏更新文档，现统一补齐：model.md §17 实现清单全勾 ✅ + §18 遗留决定落地；新建 conversation.md 完整详设计（13 节）；api-design.md / database-design.md / error-codes.md 同步 model ✅ + conversation ✅；progress-record.md 补 2026-04-25 全部条目 |
+| 2026-04-25 | **Phase 2 chat domain 完成**：7 步套路全跑完。Eino ReAct Agent 驱动，per-conversation 队列化并发控制（buffered channel 5）；SSE 15s keep-alive ping + Last-Event-ID；ContentExtractor 可插拔（PlainText / PDF / DOCX / Excel / PPTX / HTML / Image）；auto-titling 异步 goroutine；FTS5 全文索引（CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"）；8 sentinel + errmap 全覆盖。同步更新 api-design / database-design / error-codes / events-design 合约文档 |
+| 2026-04-25 | **目录重组**：`backend-new/` → `backend/`；旧 Electron 代码（backend/ + frontend/ + electron/ + Makefile + package.json）移入 `legacy/`；`.gitignore` 按标准 Go 项目重写。Phase 6（原子切换）从路线图移除，已内嵌完成 |
 | 2026-04-24 | **Phase 2 Task #1** 完成：apikey domain 层。试过扁平 / 按角色子包（types/ports/registry/tools）/ Go 社区味子包多种结构，最终定**平铺**：`apikey.go`（entity + 常量 + errors + Credentials + ListFilter + Repository + KeyProvider）+ `providers.go`（11 provider 白名单）。`mask` 搬到 app 层（只 Service 用）。立 **S12 包结构**（domain 平铺按概念拆，禁子目录）。14 新测试 |
 | 2026-04-24 | **Phase 2 Task #2** 完成：apikey Repository 实现 + 18 集成测试（CRUD / 跨用户隔离 / 分页 / GetByProvider 排序）。3 相关重构：(1) `infra/gorm/` → `infra/db/`；(2) Repository 实现最终落 `infra/store/<domain>/`（Clean Architecture 正统）；(3) 立 **S13 包命名**（三层同名 + `<name><role>` 别名：apikeydomain / apikeyapp / apikeystore）|
 | 2026-04-24 | **Phase 2 Task #3** 完成：`app/apikey/tester.go` ConnectivityTester + HTTPTester + 21 httptest 用例。4 种 HTTP 模式分派（openai-compatible `/models` / anthropic `/v1/messages` 1-token / google `/v1beta/models?key=` / ollama `/api/tags`）+ custom 按 APIFormat 二选一。约定：网络/401/5xx/ctx 取消 → `TestResult{OK:false}`；未知 provider / 必填 baseURL 缺 → Go error（程序 bug 才上抛）。审计发现 S13 别名两处违规（tester 新 + **pre-existing** store）一并修。立 **"spec 优先于邻居文件"** 审计纪律 |
@@ -121,55 +122,24 @@
 - [x] domain / store / app / handler 全套实现（CRUD 4 端点）
 - [x] 装配 + 测试全绿
 
-### 3.3 chat domain（~8h，设计完成，代码待写）
+### 3.3 chat domain ✅（2026-04-25 完成）
 
-**设计已完成**：`service-design-documents/chat.md` 完整设计落地（2026-04-25）。经过深度对标 ChatGPT / Claude / Dify 后大幅补强。
-
-**核心架构决策**：
-- Eino `react.NewAgent`，Phase 2 tools=nil，Phase 3+ 注入 System Tools
-- 两层工具体系：System Tools（~8个）永远在 context；用户工具靠 `search_tools + run_tool` Tool RAG 动态访问，不堆进 context
-- 202 + 独立 SSE（events Bridge）传输；SSE 加 keep-alive ping + Last-Event-ID 支持断连重连
-- Claude 必须自定义 `StreamToolCallChecker`（Eino 默认只检查第一个 chunk，对 Claude 失效）
-- Anthropic Prompt Cache：`cache_control` 节省最多 90% system prompt token 费用
-- `infra/eino/factory.go` 抽象 ModelFactory，各 provider（openai/anthropic/google/ollama）单独实现
-
-**Message 设计补强**（对标主流产品）：
-- 新增 `status`（pending/streaming/completed/error/cancelled）
-- 新增 `stop_reason`（end_turn/max_tokens/cancelled/error）—— max_tokens 时前端展示"继续"按钮
-- 新增 `token_usage`（JSON：inputTokens/outputTokens/cacheReadTokens）
-- 附件：`attachment_ids` JSON 数组，支持多个；文件上传即复制到 dataDir，不依赖用户原始路径
-
-**附件与多模态**：
-- 两步走：`POST /api/v1/attachments` 上传 → 拿 attachment_id → 消息带 ids
-- ContentExtractor 可插拔：Image（Vision）/ PlainText / PDF（pdfcpu）/ 其他返回 415
-- ProviderMeta 加 `SupportsVision bool`，不支持图片的 provider 推 VISION_NOT_SUPPORTED 事件
-
-**其他功能点**：
-- 取消生成：`DELETE /api/v1/conversations/{id}/stream` → cancelFunc → status=cancelled
-- Auto-titling：首轮完成后异步 goroutine 调轻量模型生成标题，写回 conversations.title
-- System Prompt：conversation 级别自定义，MessageModifier 注入
-- FTS5 全文搜索：messages_fts 虚拟表 + 触发器，schema_extras 建
-
-**待实现**：
-- [ ] `infra/eino/factory.go` — ChatModelFactory 接口 + provider dispatch
-- [ ] `infra/eino/openai.go` — OpenAI + 所有 OpenAI-compatible provider
-- [ ] `infra/eino/anthropic.go` — Anthropic + 自定义 StreamToolCallChecker + Prompt Cache
-- [ ] `infra/eino/google.go` + `ollama.go`
-- [ ] `domain/chat/chat.go` — Message / Attachment entity + Status 常量 + 8 sentinel + Repository
-- [ ] `domain/events/types.go` — 5 个 chat 事件 struct + conversation.title_updated
-- [x] `infra/db/schema_extras.go` — messages_fts FTS5 虚拟表 + 触发器（构建需 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"`）
-- [ ] `infra/store/chat/chat.go` — Store（SaveMessage / UpdateMessageStatus / LoadHistory / GetMessage / SaveAttachment）+ 集成测试
-- [ ] `infra/chat/extractor.go` — ContentExtractor 接口 + Image / PlainText / PDF / Fallback
-- [ ] `app/chat/chat.go` — Service（Send / Cancel / ListMessages / UploadAttachment + 并发控制 + Agent 构建 + 附件组装 + auto-titling + system_prompt 组装）
-- [ ] `app/chat/system_tools.go` — System Tool 接口占位
-- [ ] `handlers/chat.go` — POST attachments / POST messages / DELETE stream / GET messages / GET events（SSE + keep-alive + Last-Event-ID）
-- [ ] `domain/conversation/conversation.go` — 加 AutoTitled / SystemPrompt 字段
-- [ ] `infra/store/conversation/conversation.go` — 加 UpdateTitle 方法
-- [ ] errmap 8 条 + router/deps + main.go 装配 + db.Migrate
+- [x] `service-design-documents/chat.md` 详设计
+- [x] `domain/chat/chat.go` — Message / Attachment entity + Status/StopReason 常量 + 8 sentinel + Repository
+- [x] `domain/events/types.go` — ChatToken / ChatToolCall / ChatToolResult / ChatDone / ChatError / ConversationTitleUpdated
+- [x] `infra/db/schema_extras.go` — messages_fts FTS5 虚拟表 + 3 触发器（构建需 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"`）
+- [x] `infra/eino/factory.go` — ChatModelFactory 接口 + BuiltModel + safeStreamChecker
+- [x] `infra/eino/openai.go` / `anthropic.go` / `ollama.go` — provider 适配
+- [x] `infra/chat/extractor.go` — ContentExtractor 分派（PlainText / PDF / DOCX/ODT/RTF / Excel / PPTX / HTML / Image）
+- [x] `infra/store/chat/chat.go` — Store（Save / Get / ListByConversation / SaveAttachment / GetAttachment）+ 集成测试
+- [x] `app/chat/chat.go` — Service（Send 队列化 / Cancel / ListMessages / UploadAttachment + convQueue + Agent 构建 + auto-titling）
+- [x] `handlers/chat.go` — POST attachments / POST messages / DELETE stream / GET messages / GET events（SSE + 15s ping + Last-Event-ID）
+- [x] `domain/conversation/conversation.go` — 加 AutoTitled / SystemPrompt 字段
+- [x] errmap 8 条 + router/deps + main.go 装配 + db.Migrate
 
 ---
 
-## 4. Phase 3-6 粗粒度路线
+## 4. Phase 3-5 粗粒度路线
 
 各 Phase 开工前在此段展开细节。当前状态均为 ⬜。
 
@@ -181,9 +151,6 @@ workflow（DAG + 状态机）+ flowrun（执行实例）+ 节点系统（LLM / T
 
 ### Phase 5：智能化（~15h）
 knowledge + document（本地 sqlite-vec）+ intent（Eino ReAct Agent）+ mcpserver（`mark3labs/mcp-go`）+ skill（V1 浅版：打标签的工具）+ chat 终极版（意图识别 → 工作流推荐 → 自动建草稿）。
-
-### Phase 6：原子切换（~2h）
-Electron 配置切路径 → 烟测 30 min → 删 `backend/` → 改名 `backend-new/` → commit。
 
 ---
 

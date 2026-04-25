@@ -46,10 +46,12 @@
 
 | 事件名 | 用途 | 过滤 key | 状态 |
 |---|---|---|---|
-| `chat.token` | 流式 token 增量 | `conversationId` | ⬜ 待补 struct + 发布点 |
-| `chat.done` | 流式完成 | `conversationId` | ⬜ |
-| `chat.error` | 流式错误（含 `API_KEY_INVALID` 等）| `conversationId` | ⬜ |
-| `conversation.title_updated` | 自动命名后通知前端 | `conversationId` | ⬜ |
+| `chat.token` | 流式 token 增量（`messageId` + `delta`）| `conversationId` | ✅ |
+| `chat.tool_call` | Agent 调用 tool（`toolCallId` + `toolName` + `toolInput`）| `conversationId` | ✅ |
+| `chat.tool_result` | Tool 执行完成（`toolCallId` + `result` + `ok`）| `conversationId` | ✅ |
+| `chat.done` | 流式完成（`messageId` + `stopReason` + `tokenUsage`）| `conversationId` | ✅ |
+| `chat.error` | 流式错误（`code` + `message`，code 匹配 SCREAMING_SNAKE_CASE）| `conversationId` | ✅ |
+| `conversation.title_updated` | Auto-titling 回写标题（`title` + `autoTitled`）| `conversationId` | ✅ |
 
 ---
 

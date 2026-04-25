@@ -105,11 +105,17 @@ handler.SendMessage
 ### Phase 3 — 工具锻造能力
 `forge`（纯 AST）+ `attachment`（上传/解析）+ `tool`（最大 domain：版本/标签/测试/pending/沙箱执行/导入导出）+ `chat` 升级加 tool calling 循环。
 
+**焦点实体**：每条 message 打上 `entity_type / entity_id` 标记；Agent 调 system tool 成功后由 callback 写入。`tool.code_streaming` SSE 事件支持右侧面板实时展示代码生成过程。
+
 ### Phase 4 — 工作流能力（最大的一块）
 `workflow`（DAG + 状态机）+ `flowrun`（执行实例）+ 5 类节点（LLM / Tool / Trigger / Approval / Variable）+ `scheduler` + `trigger`（cron / fsnotify / HTTP webhook）+ `chat` 再升级支持"对话创建工作流"。底层用 `eino/compose` Graph 构建执行引擎。
 
+**焦点实体延伸**：workflow 节点编辑时推 `workflow.node_updated` 事件；右侧面板切换到对应 workflow 展示。
+
 ### Phase 5 — 智能化
 `knowledge` + `document`（本地 sqlite-vec）+ `intent`（Eino ReAct Agent）+ `mcpserver`（`mark3labs/mcp-go`）+ `skill`（V1 浅版：打标签的工具）+ `chat` 终极版（意图识别 → 工作流推荐 → 自动建草稿）。
+
+**焦点实体延伸**：knowledge / mcp / skill 同理，消息打标后右侧面板跟随切换。
 
 ### Phase 6 — 原子切换
 Electron 切路径 → 烟测 30 min → 删 `backend/` → 改名 `backend-new/` → commit。

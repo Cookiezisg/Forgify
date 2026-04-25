@@ -121,13 +121,51 @@
 - [x] domain / store / app / handler 全套实现（CRUD 4 端点）
 - [x] 装配 + 测试全绿
 
-### 3.3 chat 极简版（~5h）
+### 3.3 chat domain（~8h，设计完成，代码待写）
 
-- [ ] 填 `service-design-documents/chat.md`
-- [ ] 调用链落实：`handler.SendMessage → chat.Service.Send → model.PickForChat → apikey.ResolveCredentials → eino.Stream → SSE 推 chat.token`
-- [ ] SSE 事件 struct：`chat.token` / `chat.done` / `chat.error`（写入 `domain/events/types.go`）
-- [ ] 401 回报：chat 调 `apikey.MarkInvalid`
-- [ ] 不带 tool calling（留给 Phase 3）
+**设计已完成**：`service-design-documents/chat.md` 完整设计落地（2026-04-25）。经过深度对标 ChatGPT / Claude / Dify 后大幅补强。
+
+**核心架构决策**：
+- Eino `react.NewAgent`，Phase 2 tools=nil，Phase 3+ 注入 System Tools
+- 两层工具体系：System Tools（~8个）永远在 context；用户工具靠 `search_tools + run_tool` Tool RAG 动态访问，不堆进 context
+- 202 + 独立 SSE（events Bridge）传输；SSE 加 keep-alive ping + Last-Event-ID 支持断连重连
+- Claude 必须自定义 `StreamToolCallChecker`（Eino 默认只检查第一个 chunk，对 Claude 失效）
+- Anthropic Prompt Cache：`cache_control` 节省最多 90% system prompt token 费用
+- `infra/eino/factory.go` 抽象 ModelFactory，各 provider（openai/anthropic/google/ollama）单独实现
+
+**Message 设计补强**（对标主流产品）：
+- 新增 `status`（pending/streaming/completed/error/cancelled）
+- 新增 `stop_reason`（end_turn/max_tokens/cancelled/error）—— max_tokens 时前端展示"继续"按钮
+- 新增 `token_usage`（JSON：inputTokens/outputTokens/cacheReadTokens）
+- 附件：`attachment_ids` JSON 数组，支持多个；文件上传即复制到 dataDir，不依赖用户原始路径
+
+**附件与多模态**：
+- 两步走：`POST /api/v1/attachments` 上传 → 拿 attachment_id → 消息带 ids
+- ContentExtractor 可插拔：Image（Vision）/ PlainText / PDF（pdfcpu）/ 其他返回 415
+- ProviderMeta 加 `SupportsVision bool`，不支持图片的 provider 推 VISION_NOT_SUPPORTED 事件
+
+**其他功能点**：
+- 取消生成：`DELETE /api/v1/conversations/{id}/stream` → cancelFunc → status=cancelled
+- Auto-titling：首轮完成后异步 goroutine 调轻量模型生成标题，写回 conversations.title
+- System Prompt：conversation 级别自定义，MessageModifier 注入
+- FTS5 全文搜索：messages_fts 虚拟表 + 触发器，schema_extras 建
+
+**待实现**：
+- [ ] `infra/eino/factory.go` — ChatModelFactory 接口 + provider dispatch
+- [ ] `infra/eino/openai.go` — OpenAI + 所有 OpenAI-compatible provider
+- [ ] `infra/eino/anthropic.go` — Anthropic + 自定义 StreamToolCallChecker + Prompt Cache
+- [ ] `infra/eino/google.go` + `ollama.go`
+- [ ] `domain/chat/chat.go` — Message / Attachment entity + Status 常量 + 8 sentinel + Repository
+- [ ] `domain/events/types.go` — 5 个 chat 事件 struct + conversation.title_updated
+- [ ] `infra/db/schema_extras.go` — messages_fts FTS5 虚拟表 + 触发器
+- [ ] `infra/store/chat/chat.go` — Store（SaveMessage / UpdateMessageStatus / LoadHistory / GetMessage / SaveAttachment）+ 集成测试
+- [ ] `infra/chat/extractor.go` — ContentExtractor 接口 + Image / PlainText / PDF / Fallback
+- [ ] `app/chat/chat.go` — Service（Send / Cancel / ListMessages / UploadAttachment + 并发控制 + Agent 构建 + 附件组装 + auto-titling + system_prompt 组装）
+- [ ] `app/chat/system_tools.go` — System Tool 接口占位
+- [ ] `handlers/chat.go` — POST attachments / POST messages / DELETE stream / GET messages / GET events（SSE + keep-alive + Last-Event-ID）
+- [ ] `domain/conversation/conversation.go` — 加 AutoTitled / SystemPrompt 字段
+- [ ] `infra/store/conversation/conversation.go` — 加 UpdateTitle 方法
+- [ ] errmap 8 条 + router/deps + main.go 装配 + db.Migrate
 
 ---
 

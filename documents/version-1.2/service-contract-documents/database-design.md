@@ -58,9 +58,13 @@ GORM tag 表达不了的都在这里：
 
 #### `conversations` ✅
 详见 [`../service-design-documents/conversation.md`](../service-design-documents/conversation.md) §8。
-主键 `cv_<16hex>`；软删（`deleted_at`）；`user_id` 索引（列表查询）+ `deleted_at` 索引（GORM 软删 filter）。Title 允许空字符串（Phase 5 自动命名）。无额外 CHECK 约束。
+主键 `cv_<16hex>`；软删（`deleted_at`）；`user_id` 索引。新增字段：`system_prompt TEXT`（对话级自定义系统提示词，可为空）/ `auto_titled BOOLEAN`（标记标题是 AI 自动生成的还是用户手动改的）。Title 允许空字符串，首轮完成后 auto-titling goroutine 回写。
 
-#### `messages` ⬜
+#### `messages` 🔄
+chat domain 所有；主键 `msg_<16hex>`；字段：`conversation_id`（索引）/ `user_id` / `role` / `content` / `status`（pending\|streaming\|completed\|error\|cancelled）/ `stop_reason` / `token_usage`（JSON）/ `tool_calls`（JSON）/ `tool_call_id` / `attachment_ids`（JSON 数组）。FTS5 虚拟表 `messages_fts` 建在 schema_extras，支持全文搜索。详见 `service-design-documents/chat.md` §5。
+
+#### `chat_attachments` 🔄
+chat domain 所有；主键 `att_<16hex>`；字段：`user_id` / `file_name` / `mime_type` / `size_bytes` / `storage_path`（相对 dataDir，不对外暴露）。文件实体存 `{dataDir}/attachments/{att_id}/original.{ext}`，50MB 限制。
 
 ---
 

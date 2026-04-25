@@ -99,7 +99,12 @@ handler 侧调 `response.FromDomainError(w, log, err)` 自动翻译。
 |---|---|---|---|---|
 | `STREAM_NOT_FOUND` | 404 | `chat.ErrStreamNotFound` | 取消不存在的流 | ⬜ |
 | `STREAM_IN_PROGRESS` | 409 | `chat.ErrStreamInProgress` | 同一对话已有流在跑 | ⬜ |
-| `LLM_PROVIDER_ERROR` | 502 | `chat.ErrProviderUnavailable` | 上游 LLM 故障 | ⬜ |
+| `LLM_PROVIDER_ERROR` | 502 | `chat.ErrProviderUnavailable` | 上游 LLM 故障（非 401）| ⬜ |
+| `ATTACHMENT_TOO_LARGE` | 413 | `chat.ErrAttachmentTooLarge` | 附件超过 50MB | ⬜ |
+| `ATTACHMENT_TYPE_UNSUPPORTED` | 415 | `chat.ErrAttachmentTypeUnsupported` | 无法处理的文件格式 | ⬜ |
+| `ATTACHMENT_PARSE_FAILED` | 422 | `chat.ErrAttachmentParseFailed` | 文件损坏或解析失败 | ⬜ |
+| `VISION_NOT_SUPPORTED` | 422 | `chat.ErrVisionNotSupported` | 当前 provider 不支持图片 | ⬜ |
+| `MESSAGE_NOT_FOUND` | 404 | `chat.ErrMessageNotFound` | 消息 id 不存在 | ⬜ |
 
 ---
 

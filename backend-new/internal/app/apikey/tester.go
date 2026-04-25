@@ -71,7 +71,7 @@ var _ ConnectivityTester = (*HTTPTester)(nil)
 // Test 按 provider 的 TestMethod 分派。未知 provider、必填 baseURL 缺失
 // 以 error 返回（Service 调用前应已校验）；传输/认证结果通过 TestResult 返回。
 func (t *HTTPTester) Test(ctx context.Context, provider, key, baseURL, apiFormat string) (*TestResult, error) {
-	meta, ok := apikeydomain.GetProviderMeta(provider)
+	meta, ok := GetProviderMeta(provider)
 	if !ok {
 		return nil, fmt.Errorf("apikeytester: unknown provider %q: %w", provider, apikeydomain.ErrInvalidProvider)
 	}
@@ -84,15 +84,15 @@ func (t *HTTPTester) Test(ctx context.Context, provider, key, baseURL, apiFormat
 	}
 
 	switch meta.TestMethod {
-	case apikeydomain.TestMethodGetModels:
+	case TestMethodGetModels:
 		return t.testGetModels(ctx, effective, key), nil
-	case apikeydomain.TestMethodAnthropicPing:
+	case TestMethodAnthropicPing:
 		return t.testAnthropicPing(ctx, effective, key), nil
-	case apikeydomain.TestMethodGoogleListModels:
+	case TestMethodGoogleListModels:
 		return t.testGoogleListModels(ctx, effective, key), nil
-	case apikeydomain.TestMethodOllamaTags:
+	case TestMethodOllamaTags:
 		return t.testOllamaTags(ctx, effective), nil
-	case apikeydomain.TestMethodCustom:
+	case TestMethodCustom:
 		if apiFormat == apikeydomain.APIFormatAnthropicCompatible {
 			return t.testAnthropicPing(ctx, effective, key), nil
 		}

@@ -7,7 +7,9 @@ import (
 	"go.uber.org/zap"
 
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
+	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
 	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
+	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
 )
 
 // errMapping pairs a sentinel with its HTTP status and stable wire code.
@@ -37,6 +39,15 @@ var errTable = map[error]errMapping{
 	apikeydomain.ErrKeyRequired:         {http.StatusBadRequest, "KEY_REQUIRED"},
 	apikeydomain.ErrTestFailed:          {http.StatusUnprocessableEntity, "API_KEY_TEST_FAILED"},
 	apikeydomain.ErrInvalid:             {http.StatusUnauthorized, "API_KEY_INVALID"},
+
+	// conversation domain / conversation domain 层
+	convdomain.ErrNotFound: {http.StatusNotFound, "CONVERSATION_NOT_FOUND"},
+
+	// model domain / model domain 层
+	modeldomain.ErrNotConfigured:    {http.StatusUnprocessableEntity, "MODEL_NOT_CONFIGURED"},
+	modeldomain.ErrInvalidScenario:  {http.StatusBadRequest, "INVALID_SCENARIO"},
+	modeldomain.ErrProviderRequired: {http.StatusBadRequest, "PROVIDER_REQUIRED"},
+	modeldomain.ErrModelIDRequired:  {http.StatusBadRequest, "MODEL_ID_REQUIRED"},
 }
 
 // FromDomainError translates a domain error to an HTTP envelope via errTable.

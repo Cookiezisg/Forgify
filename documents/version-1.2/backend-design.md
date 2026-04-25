@@ -307,6 +307,17 @@ domain/chat/
 
 主文件用**包名**（如 `apikey.go`、`chat.go`）。包级 godoc **只写在主文件顶部**；其他文件的文件头注释要和 `package X` 之间留空行，免得 godoc 当成二次包 doc 拼接。**禁止**单独建 `doc.go`。
 
+**三层统一**：这条规则适用于 domain / app / infra/store 全部三层——不只是 domain 层。
+
+```
+domain/apikey/apikey.go       ← 主文件
+app/apikey/apikey.go          ← 主文件（不叫 service.go）
+infra/store/apikey/apikey.go  ← 主文件（不叫 store.go）
+```
+
+例外：有独立接口 + 独立具体类型 + 独立测试的子组件可以单独一个文件（如 `tester.go`）。
+仅"Service 实现某接口"或"小工具函数"这类情况，合并进主文件，不单独建文件。
+
 #### 3. 文件长度
 
 - < 500 行 舒服

@@ -1,9 +1,14 @@
-// service.go — apikey.Service: input validation, encryption, persistence,
-// connectivity testing. The HTTP handler's sole entry point.
+// Package apikey (app layer) owns the Service (CRUD + KeyProvider), the
+// HTTP-tester wiring, and the MaskKey helper used only by this service.
 //
-// service.go — apikey.Service：校验输入、加密、持久化、连通性测试。
-// HTTP handler 的唯一入口。
-
+// All three apikey packages (domain / app / store) declare `package apikey`;
+// external callers alias at import (e.g. apikeyapp "…/internal/app/apikey").
+//
+// Package apikey（app 层）负责 Service（CRUD + KeyProvider）、HTTP-tester
+// 的装配、以及 MaskKey 等只给 Service 用的工具函数。
+//
+// 三个 apikey 包（domain / app / store）都声明 `package apikey`；
+// 外部调用方 import 时按角色起别名（如 apikeyapp "…/internal/app/apikey"）。
 package apikey
 
 import (
@@ -60,21 +65,21 @@ type CreateInput struct {
 // UpdateInput is the partial-update payload for Service.Update. nil
 // fields are left unchanged; a non-nil pointer to "" clears the value.
 // Key / Provider / APIFormat are intentionally absent — changing them
-// means delete + recreate (cleaner audit, avoids stale test_status).
+// means delete + recreate.
 //
 // UpdateInput 是 Service.Update 的部分更新载荷。nil 字段不改；指向 "" 的
 // 非 nil 指针清空该值。故意不含 Key / Provider / APIFormat——改它们
-// 意味着 delete + recreate（审计更清晰，避免过期的 test_status）。
+// 意味着 delete + recreate。
 type UpdateInput struct {
 	DisplayName *string
 	BaseURL     *string
 }
 
-// Create validates, encrypts, and persists a new APIKey. TestStatus is
-// set to pending — a connectivity test is a separate explicit action.
+// Compile-time guard: *Service satisfies apikeydomain.KeyProvider.
 //
-// Create 校验、加密、持久化一条新 APIKey。TestStatus 初始为 pending——
-// 连通性测试是独立的显式动作。
+// 编译期守护：*Service 满足 apikeydomain.KeyProvider。
+var _ apikeydomain.KeyProvider = (*Service)(nil)
+
 func (s *Service) Create(ctx context.Context, in CreateInput) (*apikeydomain.APIKey, error) {
 	if err := validateCreate(in); err != nil {
 		return nil, err
@@ -83,12 +88,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*apikeydomain.API
 	if !ok {
 		return nil, fmt.Errorf("apikey.Service.Create: missing user id in context")
 	}
-
 	ciphertext, err := s.encryptor.Encrypt(ctx, []byte(in.Key))
 	if err != nil {
 		return nil, fmt.Errorf("apikey.Service.Create: encrypt: %w", err)
 	}
-
 	now := time.Now().UTC()
 	k := &apikeydomain.APIKey{
 		ID:           newID(),
@@ -113,22 +116,14 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*apikeydomain.API
 	return k, nil
 }
 
-// validateCreate applies the Phase 2 rules: provider in whitelist, key
-// non-empty, baseURL required for providers that demand it, apiFormat
-// required for custom. Key itself is not format-validated — provider
-// decides shape at connectivity test time.
-//
-// validateCreate 应用 Phase 2 规则：provider 在白名单、key 非空、
-// 特定 provider 必填 baseURL、custom 必填 apiFormat。key 本身不校验格式——
-// 形状由 provider 在连通性测试时判断。
 func validateCreate(in CreateInput) error {
-	if !apikeydomain.IsValidProvider(in.Provider) {
+	if !IsValidProvider(in.Provider) {
 		return fmt.Errorf("provider %q: %w", in.Provider, apikeydomain.ErrInvalidProvider)
 	}
 	if strings.TrimSpace(in.Key) == "" {
 		return apikeydomain.ErrKeyRequired
 	}
-	meta, _ := apikeydomain.GetProviderMeta(in.Provider)
+	meta, _ := GetProviderMeta(in.Provider)
 	if meta.BaseURLRequired && strings.TrimSpace(in.BaseURL) == "" {
 		return apikeydomain.ErrBaseURLRequired
 	}
@@ -138,9 +133,6 @@ func validateCreate(in CreateInput) error {
 	return nil
 }
 
-// Update applies a partial update. Missing fields stay untouched.
-//
-// Update 做部分更新。未提供的字段保持不变。
 func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (*apikeydomain.APIKey, error) {
 	k, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -159,33 +151,22 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (*apike
 	return k, nil
 }
 
-// Delete soft-deletes by id (scoped to caller).
-//
-// Delete 按 id 软删除（按调用者过滤）。
 func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// Get fetches one APIKey.
-//
-// Get 取一条 APIKey。
 func (s *Service) Get(ctx context.Context, id string) (*apikeydomain.APIKey, error) {
 	return s.repo.Get(ctx, id)
 }
 
-// List returns a paginated page of the caller's APIKeys.
-//
-// List 返回调用者 APIKey 的一页（分页）。
 func (s *Service) List(ctx context.Context, filter apikeydomain.ListFilter) ([]*apikeydomain.APIKey, string, error) {
 	return s.repo.List(ctx, filter)
 }
 
 // Test fetches the APIKey, decrypts, probes the upstream, writes the
-// outcome back, and returns the TestResult. The DB write is Service's
-// job, not Tester's — Tester is a stateless probe.
+// outcome back, and returns the TestResult.
 //
 // Test 取回 APIKey、解密、探测上游、写回结果、返回 TestResult。
-// 写表是 Service 的职责，不是 Tester 的——Tester 是无状态探针。
 func (s *Service) Test(ctx context.Context, id string) (*TestResult, error) {
 	k, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -197,15 +178,9 @@ func (s *Service) Test(ctx context.Context, id string) (*TestResult, error) {
 	}
 	result, err := s.tester.Test(ctx, k.Provider, string(plain), k.BaseURL, k.APIFormat)
 	if err != nil {
-		// Programmer-bug path (unknown provider, missing required baseURL).
-		// Record as test error so the UI shows something useful.
-		//
-		// 程序 bug 路径（未知 provider、必填 baseURL 缺失）。记为测试失败，
-		// UI 才有东西可展示。
 		_ = s.repo.UpdateTestResult(ctx, id, apikeydomain.TestStatusError, err.Error())
 		return nil, fmt.Errorf("apikey.Service.Test: tester: %w", err)
 	}
-
 	status := apikeydomain.TestStatusError
 	errMsg := result.Message
 	if result.OK {
@@ -223,19 +198,75 @@ func (s *Service) Test(ctx context.Context, id string) (*TestResult, error) {
 	return result, nil
 }
 
-// newID mints "aki_" + 16 hex chars (64 bits of entropy). Collision risk
-// at 100M keys per user is negligible (~10^-9).
+// ResolveCredentials picks the best APIKey for (caller, provider), decrypts,
+// and merges baseURL with the provider default.
 //
-// newID 生成 "aki_" + 16 hex（64 位熵）。单用户 1 亿条 key 的碰撞概率
-// 可忽略（约 10^-9）。
+// ResolveCredentials 为 (调用者, provider) 挑选最佳 APIKey，解密，
+// 并合并 baseURL 和 provider 默认值。
+func (s *Service) ResolveCredentials(ctx context.Context, provider string) (apikeydomain.Credentials, error) {
+	k, err := s.repo.GetByProvider(ctx, provider)
+	if err != nil {
+		return apikeydomain.Credentials{}, err
+	}
+	plain, err := s.encryptor.Decrypt(ctx, []byte(k.KeyEncrypted))
+	if err != nil {
+		return apikeydomain.Credentials{}, fmt.Errorf("apikey.Service.ResolveCredentials: decrypt: %w", err)
+	}
+	baseURL := k.BaseURL
+	if baseURL == "" {
+		if meta, ok := GetProviderMeta(provider); ok {
+			baseURL = meta.DefaultBaseURL
+		}
+	}
+	return apikeydomain.Credentials{Key: string(plain), BaseURL: baseURL}, nil
+}
+
+// MarkInvalid updates test_status to error on the selected APIKey when a
+// caller's LLM call got 401/403.
+//
+// MarkInvalid 在调用方 LLM 调用遇到 401/403 时，把选中 APIKey 的
+// test_status 更新为 error。
+func (s *Service) MarkInvalid(ctx context.Context, provider, reason string) error {
+	k, err := s.repo.GetByProvider(ctx, provider)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.UpdateTestResult(ctx, k.ID, apikeydomain.TestStatusError, reason); err != nil {
+		return err
+	}
+	s.log.Warn("apikey marked invalid",
+		zap.String("key_id", k.ID),
+		zap.String("provider", provider),
+		zap.String("reason", reason))
+	return nil
+}
+
+// MaskKey converts a plaintext API key into a display-safe masked form.
+//
+// Rules:
+//   - length <  8  → "****"
+//   - length 8-20  → first 3 + "..." + last 4
+//   - length > 20  → first 7 + "..." + last 4
+//
+// MaskKey 把明文 API Key 转成展示安全的掩码。
+func MaskKey(key string) string {
+	n := len(key)
+	switch {
+	case n < 8:
+		return "****"
+	case n <= 20:
+		return key[:3] + "..." + key[n-4:]
+	default:
+		return key[:7] + "..." + key[n-4:]
+	}
+}
+
+// newID mints "aki_" + 16 hex chars (64 bits of entropy).
+//
+// newID 生成 "aki_" + 16 hex（64 位熵）。
 func newID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		// crypto/rand failure means the OS RNG is broken — a panic is
-		// the correct response; the server cannot safely mint IDs.
-		//
-		// crypto/rand 失败意味着 OS RNG 故障——panic 是正解，服务端已无法
-		// 安全地生成 ID。
 		panic(fmt.Sprintf("apikey: crypto/rand failed: %v", err))
 	}
 	return "aki_" + hex.EncodeToString(b[:])

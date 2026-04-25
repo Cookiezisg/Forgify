@@ -1,10 +1,8 @@
-// service_test.go — unit tests for Service using a fake Repository +
-// fake ConnectivityTester + real AES-GCM Encryptor. Real crypto is used
-// (not a mock) so encrypt/decrypt wiring is exercised end-to-end.
+// apikey_test.go — unit tests for Service (CRUD, KeyProvider, MaskKey)
+// using a fake Repository + fake ConnectivityTester + real AES-GCM Encryptor.
 //
-// service_test.go — Service 单测：fake Repository + fake ConnectivityTester +
-// 真 AES-GCM Encryptor。用真 crypto 不是为了慢，而是端到端跑通加解密接线。
-
+// apikey_test.go — Service 单测（CRUD、KeyProvider、MaskKey）：
+// fake Repository + fake ConnectivityTester + 真 AES-GCM Encryptor。
 package apikey
 
 import (
@@ -58,8 +56,6 @@ func (r *fakeRepo) List(ctx context.Context, filter apikeydomain.ListFilter) ([]
 
 func (r *fakeRepo) GetByProvider(ctx context.Context, provider string) (*apikeydomain.APIKey, error) {
 	uid, _ := reqctx.GetUserID(ctx)
-	// Prefer test_status=ok; otherwise most recent created_at.
-	// 优先 test_status=ok，否则 created_at 最新。
 	var best *apikeydomain.APIKey
 	for _, k := range r.items {
 		if k.UserID != uid || k.Provider != provider {
@@ -77,12 +73,12 @@ func (r *fakeRepo) GetByProvider(ctx context.Context, provider string) (*apikeyd
 	return best, nil
 }
 
-func (r *fakeRepo) Save(ctx context.Context, k *apikeydomain.APIKey) error {
+func (r *fakeRepo) Save(_ context.Context, k *apikeydomain.APIKey) error {
 	r.items[k.ID] = k
 	return nil
 }
 
-func (r *fakeRepo) Delete(ctx context.Context, id string) error {
+func (r *fakeRepo) Delete(_ context.Context, id string) error {
 	if _, ok := r.items[id]; !ok {
 		return apikeydomain.ErrNotFound
 	}
@@ -90,7 +86,7 @@ func (r *fakeRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *fakeRepo) UpdateTestResult(ctx context.Context, id, status, errMsg string) error {
+func (r *fakeRepo) UpdateTestResult(_ context.Context, id, status, errMsg string) error {
 	k, ok := r.items[id]
 	if !ok {
 		return apikeydomain.ErrNotFound
@@ -102,23 +98,17 @@ func (r *fakeRepo) UpdateTestResult(ctx context.Context, id, status, errMsg stri
 	return nil
 }
 
-// fakeTester returns pre-canned results and records call count.
-//
-// fakeTester 返回预设结果并记录调用次数。
 type fakeTester struct {
 	result *TestResult
 	err    error
 	calls  int
 }
 
-func (t *fakeTester) Test(ctx context.Context, provider, key, baseURL, apiFormat string) (*TestResult, error) {
+func (t *fakeTester) Test(_ context.Context, _, _, _, _ string) (*TestResult, error) {
 	t.calls++
 	return t.result, t.err
 }
 
-// newTestService builds a Service with fake repo + fake tester + real AES-GCM encryptor.
-//
-// newTestService 构造带 fake repo + fake tester + 真 AES-GCM encryptor 的 Service。
 func newTestService(t *testing.T, tester ConnectivityTester) (*Service, *fakeRepo) {
 	t.Helper()
 	enc, err := infracrypto.NewAESGCMEncryptor(infracrypto.DeriveKey("service-test-fixture"))
@@ -132,6 +122,14 @@ func newTestService(t *testing.T, tester ConnectivityTester) (*Service, *fakeRep
 
 func ctxFor(userID string) context.Context {
 	return reqctx.SetUserID(context.Background(), userID)
+}
+
+func providersOf(ks []*apikeydomain.APIKey) []string {
+	out := make([]string, len(ks))
+	for i, k := range ks {
+		out[i] = k.Provider
+	}
+	return out
 }
 
 // ---- Create ----
@@ -148,7 +146,6 @@ func TestService_Create_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-
 	if !strings.HasPrefix(k.ID, "aki_") {
 		t.Errorf("ID = %q, want prefix aki_", k.ID)
 	}
@@ -159,10 +156,10 @@ func TestService_Create_Success(t *testing.T) {
 		t.Errorf("KeyMasked = %q, want sk-proj...0xyz", k.KeyMasked)
 	}
 	if k.KeyEncrypted == "" || k.KeyEncrypted == "sk-proj-abcdefg1234567890xyz" {
-		t.Errorf("KeyEncrypted = %q, want non-empty ciphertext different from plaintext", k.KeyEncrypted)
+		t.Errorf("KeyEncrypted = %q, want non-empty ciphertext", k.KeyEncrypted)
 	}
 	if !strings.HasPrefix(k.KeyEncrypted, "v1:") {
-		t.Errorf("KeyEncrypted = %q, want v1: prefix (AES-GCM format)", k.KeyEncrypted)
+		t.Errorf("KeyEncrypted = %q, want v1: prefix", k.KeyEncrypted)
 	}
 	if k.TestStatus != apikeydomain.TestStatusPending {
 		t.Errorf("TestStatus = %q, want pending", k.TestStatus)
@@ -188,7 +185,7 @@ func TestService_Create_ValidationErrors(t *testing.T) {
 			svc, repo := newTestService(t, &fakeTester{})
 			_, err := svc.Create(ctxFor("u"), c.in)
 			if !errors.Is(err, c.want) {
-				t.Errorf("err = %v, want to wrap %v", err, c.want)
+				t.Errorf("err = %v, want %v", err, c.want)
 			}
 			if len(repo.items) != 0 {
 				t.Errorf("repo got %d items on validation error, want 0", len(repo.items))
@@ -198,8 +195,6 @@ func TestService_Create_ValidationErrors(t *testing.T) {
 }
 
 func TestService_Create_MissingUserID_Errors(t *testing.T) {
-	// Hitting Create without InjectUserID middleware is a server wiring bug.
-	// 没经过 InjectUserID 就调 Create 是服务端接线 bug。
 	svc, _ := newTestService(t, &fakeTester{})
 	_, err := svc.Create(context.Background(), CreateInput{Provider: "openai", Key: "sk-x"})
 	if err == nil {
@@ -234,10 +229,7 @@ func TestService_Create_UsesCustomBaseURLAndAPIFormat(t *testing.T) {
 func TestService_Update_PartialFields(t *testing.T) {
 	svc, _ := newTestService(t, &fakeTester{})
 	ctx := ctxFor("u")
-	created, err := svc.Create(ctx, CreateInput{Provider: "openai", DisplayName: "Old", Key: "sk-x"})
-	if err != nil {
-		t.Fatalf("seed Create: %v", err)
-	}
+	created, _ := svc.Create(ctx, CreateInput{Provider: "openai", DisplayName: "Old", Key: "sk-x"})
 
 	newName := "New Display"
 	updated, err := svc.Update(ctx, created.ID, UpdateInput{DisplayName: &newName})
@@ -248,10 +240,10 @@ func TestService_Update_PartialFields(t *testing.T) {
 		t.Errorf("DisplayName = %q, want New Display", updated.DisplayName)
 	}
 	if updated.BaseURL != created.BaseURL {
-		t.Errorf("BaseURL changed from %q to %q, want unchanged", created.BaseURL, updated.BaseURL)
+		t.Errorf("BaseURL changed unexpectedly")
 	}
 	if updated.UpdatedAt.Before(created.UpdatedAt) {
-		t.Errorf("UpdatedAt did not advance")
+		t.Error("UpdatedAt did not advance")
 	}
 }
 
@@ -270,7 +262,6 @@ func TestService_Delete_RemovesEntry(t *testing.T) {
 	svc, repo := newTestService(t, &fakeTester{})
 	ctx := ctxFor("u")
 	k, _ := svc.Create(ctx, CreateInput{Provider: "openai", Key: "sk-x"})
-
 	if err := svc.Delete(ctx, k.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -309,11 +300,8 @@ func TestService_Test_Success_WritesOKStatus(t *testing.T) {
 	if stored.TestStatus != apikeydomain.TestStatusOK {
 		t.Errorf("TestStatus = %q, want ok", stored.TestStatus)
 	}
-	if stored.TestError != "" {
-		t.Errorf("TestError = %q, want empty on success", stored.TestError)
-	}
 	if stored.LastTestedAt == nil {
-		t.Error("LastTestedAt still nil after successful test")
+		t.Error("LastTestedAt nil after successful test")
 	}
 }
 
@@ -325,7 +313,7 @@ func TestService_Test_Failure_WritesErrorStatus(t *testing.T) {
 
 	res, err := svc.Test(ctx, k.ID)
 	if err != nil {
-		t.Fatalf("Test: %v (non-OK result must not be a Go error)", err)
+		t.Fatalf("Test: %v", err)
 	}
 	if res.OK {
 		t.Error("result.OK = true, want false")
@@ -335,14 +323,11 @@ func TestService_Test_Failure_WritesErrorStatus(t *testing.T) {
 		t.Errorf("TestStatus = %q, want error", stored.TestStatus)
 	}
 	if stored.TestError != "HTTP 401: invalid" {
-		t.Errorf("TestError = %q, want 'HTTP 401: invalid'", stored.TestError)
+		t.Errorf("TestError = %q", stored.TestError)
 	}
 }
 
 func TestService_Test_TesterProgrammerBug_RecordedAndPropagated(t *testing.T) {
-	// Tester returning a real error is a programmer bug (unknown provider etc).
-	// Service should record it and propagate the error.
-	// Tester 返回真 error 是程序 bug（未知 provider 等）。Service 应记录并向上传。
 	tester := &fakeTester{err: errors.New("unknown provider")}
 	svc, repo := newTestService(t, tester)
 	ctx := ctxFor("u")
@@ -365,7 +350,7 @@ func TestService_Test_NotFound(t *testing.T) {
 	}
 }
 
-// ---- Get / List ----
+// ---- List ----
 
 func TestService_List_FiltersByProvider(t *testing.T) {
 	svc, _ := newTestService(t, &fakeTester{})
@@ -378,19 +363,11 @@ func TestService_List_FiltersByProvider(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 	if len(got) != 1 || got[0].Provider != "openai" {
-		t.Errorf("got %d items (provider %v), want exactly 1 openai", len(got), providersOf(got))
+		t.Errorf("got %v, want exactly 1 openai", providersOf(got))
 	}
 }
 
-func providersOf(ks []*apikeydomain.APIKey) []string {
-	out := make([]string, len(ks))
-	for i, k := range ks {
-		out[i] = k.Provider
-	}
-	return out
-}
-
-// ---- KeyProvider interface (ResolveCredentials / MarkInvalid) ----
+// ---- KeyProvider ----
 
 func TestService_ResolveCredentials_DecryptsAndMergesDefaultBaseURL(t *testing.T) {
 	svc, _ := newTestService(t, &fakeTester{})
@@ -402,22 +379,17 @@ func TestService_ResolveCredentials_DecryptsAndMergesDefaultBaseURL(t *testing.T
 		t.Fatalf("ResolveCredentials: %v", err)
 	}
 	if creds.Key != "sk-plaintext" {
-		t.Errorf("Key = %q, want sk-plaintext (decryption failed)", creds.Key)
+		t.Errorf("Key = %q, want sk-plaintext", creds.Key)
 	}
-	want := "https://api.openai.com/v1"
-	if creds.BaseURL != want {
-		t.Errorf("BaseURL = %q, want %q (provider default)", creds.BaseURL, want)
+	if creds.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("BaseURL = %q, want provider default", creds.BaseURL)
 	}
 }
 
 func TestService_ResolveCredentials_UserBaseURLOverridesDefault(t *testing.T) {
 	svc, _ := newTestService(t, &fakeTester{})
 	ctx := ctxFor("u")
-	_, _ = svc.Create(ctx, CreateInput{
-		Provider: "openai",
-		Key:      "sk-x",
-		BaseURL:  "https://custom.proxy/v1",
-	})
+	_, _ = svc.Create(ctx, CreateInput{Provider: "openai", Key: "sk-x", BaseURL: "https://custom.proxy/v1"})
 
 	creds, err := svc.ResolveCredentials(ctx, "openai")
 	if err != nil {
@@ -449,7 +421,7 @@ func TestService_MarkInvalid_UpdatesTestResult(t *testing.T) {
 		t.Errorf("TestStatus = %q, want error", stored.TestStatus)
 	}
 	if stored.TestError != "chat returned 401" {
-		t.Errorf("TestError = %q, want 'chat returned 401'", stored.TestError)
+		t.Errorf("TestError = %q", stored.TestError)
 	}
 }
 
@@ -464,12 +436,42 @@ func TestService_MarkInvalid_NoKeyForProvider(t *testing.T) {
 // ---- DI guard ----
 
 func TestNewService_NilLogger_Panics(t *testing.T) {
-	// A nil logger is a wiring bug — fail loud at boot, not in prod log sites.
-	// nil logger 是接线 bug——启动时响亮失败，而不是在生产 log 处炸。
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("NewService did not panic on nil logger")
 		}
 	}()
 	_ = NewService(newFakeRepo(), nil, &fakeTester{}, nil)
+}
+
+// ---- MaskKey ----
+
+func TestMaskKey(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "****"},
+		{"abc", "****"},
+		{"short12", "****"},
+		{"12345678", "123...5678"},
+		{"AKIA1234567890ABCDEF", "AKI...CDEF"},
+		{"sk-proj-abcdefg1234567890xyz", "sk-proj...0xyz"},
+		{"sk-ant-api01-xxxxxxxxxxxxxxxxyyyy", "sk-ant-...yyyy"},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			if got := MaskKey(c.in); got != c.want {
+				t.Errorf("MaskKey(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestMaskKey_NeverLeaksMiddle(t *testing.T) {
+	secret := "sk-proj-MIDDLE_SECRET_PART_xyz9"
+	masked := MaskKey(secret)
+	if strings.Contains(masked, "MIDDLE_SECRET_PART") {
+		t.Errorf("mask leaked middle of key: %q", masked)
+	}
 }

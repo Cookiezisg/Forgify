@@ -22,11 +22,17 @@ import (
 	"go.uber.org/zap"
 
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
+	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
+	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
+	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
+	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
 	infracrypto "github.com/sunweilin/forgify/backend/internal/infra/crypto"
 	"github.com/sunweilin/forgify/backend/internal/infra/db"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 	apikeystore "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
+	convstore "github.com/sunweilin/forgify/backend/internal/infra/store/conversation"
+	modelstore "github.com/sunweilin/forgify/backend/internal/infra/store/model"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/router"
 )
 
@@ -56,7 +62,7 @@ func main() {
 
 	// Phase 2 domain tables. New domains append their GORM models here.
 	// Phase 2 domain 表。新 domain 把 GORM model 追加到这里。
-	if err := db.Migrate(gdb, &apikeydomain.APIKey{}); err != nil {
+	if err := db.Migrate(gdb, &apikeydomain.APIKey{}, &modeldomain.ModelConfig{}, &convdomain.Conversation{}); err != nil {
 		log.Error("migrate db", zap.Error(err))
 		os.Exit(1)
 	}
@@ -86,9 +92,14 @@ func main() {
 		log,
 	)
 
+	modelService := modelapp.NewService(modelstore.New(gdb), log)
+	convService := convapp.NewService(convstore.New(gdb), log)
+
 	handler := router.New(router.Deps{
-		Log:           log,
-		APIKeyService: apikeyService,
+		Log:                 log,
+		APIKeyService:       apikeyService,
+		ModelService:        modelService,
+		ConversationService: convService,
 	})
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))

@@ -34,6 +34,12 @@ func New(deps Deps) http.Handler {
 	if deps.APIKeyService != nil {
 		handlers.NewAPIKeyHandler(deps.APIKeyService, deps.Log).Register(mux)
 	}
+	if deps.ModelService != nil {
+		handlers.NewModelConfigHandler(deps.ModelService, deps.Log).Register(mux)
+	}
+	if deps.ConversationService != nil {
+		handlers.NewConversationHandler(deps.ConversationService, deps.Log).Register(mux)
+	}
 
 	// 404 fallback — must be last so specific routes take precedence.
 	// 404 兜底——必须最后，让具体路由优先。
@@ -48,10 +54,10 @@ func New(deps Deps) http.Handler {
 // applyChain 用完整中间件链包裹 h。从内向外：最外层中间件（Recover）
 // 最后应用，因而在每次请求中最先运行。
 func applyChain(h http.Handler, deps Deps) http.Handler {
-	h = middleware.InjectUserID(h)                        // innermost / 最内层
+	h = middleware.InjectUserID(h) // innermost / 最内层
 	h = middleware.InjectLocale(h)
 	h = middleware.CORS(middleware.DefaultCORSConfig())(h)
 	h = middleware.RequestLogger(deps.Log)(h)
-	h = middleware.Recover(deps.Log)(h)                   // outermost / 最外层
+	h = middleware.Recover(deps.Log)(h) // outermost / 最外层
 	return h
 }

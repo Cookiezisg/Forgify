@@ -660,6 +660,8 @@ model domain 不涉及明文凭证，安全面比 apikey 小。唯一关注：
 - GET /{scenario} 单条接口：Phase 2 不做，scenario 多了再加
 - DELETE 接口：暂不做，用户直接 PUT 新值即可
 
+- **一键自动配置** `POST /api/v1/model-configs:auto-configure`：按每个 scenario 的 provider 偏好列表，匹配用户已有的活跃 key，批量 Upsert。触发时机：新增/更新 key 后提示用户、key 失效后提示重新跑。**Phase 5 全部 scenario 定义完后 revisit**。
+
 ---
 
 ## 19. 与其他 domain 的协作图

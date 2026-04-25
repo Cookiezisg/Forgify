@@ -8,6 +8,8 @@ import (
 	"go.uber.org/zap"
 
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
+	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
+	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
 )
 
 // Deps bundles everything the HTTP transport layer needs. Constructed
@@ -25,9 +27,11 @@ type Deps struct {
 	// APIKeyService 为 /api/v1/api-keys/* 提供 CRUD + KeyProvider。
 	APIKeyService *apikeyapp.Service
 
-	// Phase 2+ fields (ConversationService, ToolService, ...) appended
-	// here as domains come online.
-	//
-	// Phase 2+ 字段（ConversationService、ToolService ...）随各 domain
-	// 上线依次追加。
+	// ModelService implements CRUD + ModelPicker for /api/v1/model-configs/*.
+	// ModelService 为 /api/v1/model-configs/* 提供 CRUD + ModelPicker。
+	ModelService *modelapp.Service
+
+	// ConversationService implements CRUD for /api/v1/conversations/*.
+	// ConversationService 为 /api/v1/conversations/* 提供 CRUD。
+	ConversationService *convapp.Service
 }

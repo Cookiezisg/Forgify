@@ -1,0 +1,63 @@
+package router
+
+import (
+	"net/http"
+
+	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/handlers"
+	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/middleware"
+)
+
+// New builds the complete HTTP handler: routes + middleware chain +
+// 404 fallback. main.go calls this once and hands the result to http.Server.
+//
+// Chain order on the wire (outermost first):
+//
+//	Recover → RequestLogger → CORS → InjectLocale → InjectUserID → mux
+//
+// Recover outermost catches any inner panic. RequestLogger next so the
+// access log captures 500s from Recover. CORS / locale / userID are
+// innermost so preflight OPTIONS (terminates inside CORS) doesn't need them.
+//
+// New 构造完整的 HTTP handler：路由 + 中间件链 + 404 兜底。
+// main.go 只调一次，结果交给 http.Server。
+//
+// 链序（从外到内）：Recover → RequestLogger → CORS → InjectLocale →
+// InjectUserID → mux。Recover 在最外层捕 panic；RequestLogger 在其内层
+// 让 Recover 写的 500 也能被日志记录；CORS/locale/userID 在最内层，
+// 因 preflight OPTIONS 在 CORS 层就结束，不需要它们。
+func New(deps Deps) http.Handler {
+	mux := http.NewServeMux()
+
+	// Each handler registers its own routes.
+	// 每个 handler 注册自己的路由。
+	handlers.NewHealthHandler().Register(mux)
+	if deps.APIKeyService != nil {
+		handlers.NewAPIKeyHandler(deps.APIKeyService, deps.Log).Register(mux)
+	}
+	if deps.ModelService != nil {
+		handlers.NewModelConfigHandler(deps.ModelService, deps.Log).Register(mux)
+	}
+	if deps.ConversationService != nil {
+		handlers.NewConversationHandler(deps.ConversationService, deps.Log).Register(mux)
+	}
+
+	// 404 fallback — must be last so specific routes take precedence.
+	// 404 兜底——必须最后，让具体路由优先。
+	mux.HandleFunc("/", middleware.NotFound)
+
+	return applyChain(mux, deps)
+}
+
+// applyChain wraps h with the full middleware chain. Inside-out: the
+// outermost middleware (Recover) is applied last so it runs first per request.
+//
+// applyChain 用完整中间件链包裹 h。从内向外：最外层中间件（Recover）
+// 最后应用，因而在每次请求中最先运行。
+func applyChain(h http.Handler, deps Deps) http.Handler {
+	h = middleware.InjectUserID(h) // innermost / 最内层
+	h = middleware.InjectLocale(h)
+	h = middleware.CORS(middleware.DefaultCORSConfig())(h)
+	h = middleware.RequestLogger(deps.Log)(h)
+	h = middleware.Recover(deps.Log)(h) // outermost / 最外层
+	return h
+}

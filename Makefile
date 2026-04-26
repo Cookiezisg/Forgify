@@ -1,4 +1,5 @@
 BACKEND_DATA_DIR ?= /tmp/forgify-dev
+LOG_FILE         := /tmp/forgify-dev.log
 PORT             ?= 8742
 
 testend:
@@ -11,14 +12,18 @@ testend:
 	    --port $(PORT) \
 	    --data-dir $(BACKEND_DATA_DIR) \
 	    --collections-dir $(shell pwd)/testend/collections \
-	    --integration-dir $(shell pwd)/testend &
+	    --integration-dir $(shell pwd)/testend \
+	  > $(LOG_FILE) 2>&1 &
 	@echo "→ Waiting for backend..."
 	@while ! curl -sf http://localhost:$(PORT)/api/v1/health > /dev/null 2>&1; do sleep 0.5; done
-	@echo "→ Opening http://localhost:$(PORT)/dev/"
+	@echo "→ http://localhost:$(PORT)/dev/  (logs → $(LOG_FILE))"
 	@open http://localhost:$(PORT)/dev/
 
 stop:
 	@lsof -ti :$(PORT) | xargs kill 2>/dev/null || true
-	@echo "→ Backend stopped"
+	@echo "→ Stopped"
 
-.PHONY: testend stop
+logs:
+	@tail -f $(LOG_FILE)
+
+.PHONY: testend stop logs

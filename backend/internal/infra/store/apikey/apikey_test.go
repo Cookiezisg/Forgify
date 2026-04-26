@@ -186,7 +186,7 @@ func TestUpdateTestResult_WritesOnlyTargetedFields(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	if err := s.UpdateTestResult(ctx, "k1", apikeydomain.TestStatusOK, ""); err != nil {
+	if err := s.UpdateTestResult(ctx, "k1", apikeydomain.TestStatusOK, "", []string{"gpt-4o", "gpt-4o-mini"}); err != nil {
 		t.Fatalf("UpdateTestResult: %v", err)
 	}
 
@@ -207,7 +207,7 @@ func TestUpdateTestResult_WritesOnlyTargetedFields(t *testing.T) {
 
 func TestUpdateTestResult_NotFound(t *testing.T) {
 	s := newStore(t)
-	err := s.UpdateTestResult(ctxFor(userAlice), "missing", apikeydomain.TestStatusOK, "")
+	err := s.UpdateTestResult(ctxFor(userAlice), "missing", apikeydomain.TestStatusOK, "", nil)
 	if !errors.Is(err, apikeydomain.ErrNotFound) {
 		t.Errorf("got %v, want ErrNotFound", err)
 	}

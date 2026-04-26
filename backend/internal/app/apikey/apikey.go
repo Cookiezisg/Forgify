@@ -178,16 +178,18 @@ func (s *Service) Test(ctx context.Context, id string) (*TestResult, error) {
 	}
 	result, err := s.tester.Test(ctx, k.Provider, string(plain), k.BaseURL, k.APIFormat)
 	if err != nil {
-		_ = s.repo.UpdateTestResult(ctx, id, apikeydomain.TestStatusError, err.Error())
+		_ = s.repo.UpdateTestResult(ctx, id, apikeydomain.TestStatusError, err.Error(), nil)
 		return nil, fmt.Errorf("apikey.Service.Test: tester: %w", err)
 	}
 	status := apikeydomain.TestStatusError
 	errMsg := result.Message
+	var models []string
 	if result.OK {
 		status = apikeydomain.TestStatusOK
 		errMsg = ""
+		models = result.ModelsFound
 	}
-	if upErr := s.repo.UpdateTestResult(ctx, id, status, errMsg); upErr != nil {
+	if upErr := s.repo.UpdateTestResult(ctx, id, status, errMsg, models); upErr != nil {
 		return nil, upErr
 	}
 	s.log.Info("apikey tested",
@@ -231,7 +233,7 @@ func (s *Service) MarkInvalid(ctx context.Context, provider, reason string) erro
 	if err != nil {
 		return err
 	}
-	if err := s.repo.UpdateTestResult(ctx, k.ID, apikeydomain.TestStatusError, reason); err != nil {
+	if err := s.repo.UpdateTestResult(ctx, k.ID, apikeydomain.TestStatusError, reason, nil); err != nil {
 		return err
 	}
 	s.log.Warn("apikey marked invalid",

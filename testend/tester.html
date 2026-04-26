@@ -11,105 +11,7 @@
   <!-- ── Top Bar ─────────────────────────────────────────────────── -->
   <header class="topbar">
     <span class="topbar-title">FORGIFY TESTER</span>
-    <div class="topbar-right">
-      <button class="btn-icon" @click="showSettings = true" title="Settings">⚙</button>
-    </div>
   </header>
-
-  <!-- ── Settings Modal ──────────────────────────────────────────── -->
-  <div class="modal-overlay" x-show="showSettings" x-cloak @click.self="closeSettings()"
-       x-data="settingsPanel()" @close-settings.window="showSettings = false">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>Settings</h2>
-        <div style="display:flex;align-items:center;gap:10px">
-          <span x-show="msg" x-text="msg" style="font-size:11px;color:var(--green)"></span>
-          <button class="btn-icon" @click="$dispatch('close-settings')">✕</button>
-        </div>
-      </div>
-      <div class="modal-body">
-
-        <!-- Model Config -->
-        <div class="modal-section">
-          <h3>Chat Model</h3>
-          <template x-if="!editingModel && modelConfig">
-            <div style="display:flex;align-items:center;gap:10px;font-size:12px">
-              <span style="color:var(--accent)" x-text="modelConfig.provider"></span>
-              <span x-text="modelConfig.modelId"></span>
-              <button class="btn btn-ghost btn-sm" @click="editingModel=true">Edit</button>
-            </div>
-          </template>
-          <template x-if="editingModel || !modelConfig">
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <div class="form-row">
-                <label>Provider</label>
-                <input class="form-input" x-model="modelProvider" placeholder="openai">
-              </div>
-              <div class="form-row">
-                <label>Model ID</label>
-                <input class="form-input" x-model="modelID" placeholder="gpt-4o-mini">
-              </div>
-              <div style="display:flex;gap:6px">
-                <button class="btn btn-primary btn-sm" @click="saveModel()" :disabled="saving">Save</button>
-                <button class="btn btn-ghost btn-sm" @click="editingModel=false" x-show="modelConfig">Cancel</button>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <!-- API Keys -->
-        <div class="modal-section">
-          <h3>API Keys</h3>
-          <template x-for="k in apiKeys" :key="k.id">
-            <div class="apikey-row">
-              <span class="provider" x-text="k.provider"></span>
-              <span class="masked" x-text="k.keyMasked"></span>
-              <span :class="'status-'+(k.testStatus==='ok'?'ok':k.testStatus==='error'?'err':'pend')"
-                    x-text="k.testStatus"></span>
-              <button class="btn btn-danger btn-sm" @click="deleteKey(k.id)">✕</button>
-            </div>
-          </template>
-          <div x-show="!showAddKey" style="margin-top:8px">
-            <button class="btn btn-ghost btn-sm" @click="showAddKey=true">+ Add API Key</button>
-          </div>
-          <div x-show="showAddKey" style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
-            <div class="form-row">
-              <label>Provider</label>
-              <select class="form-input" x-model="newProvider">
-                <template x-for="p in providers" :key="p.value">
-                  <option :value="p.value" x-text="p.label"></option>
-                </template>
-              </select>
-            </div>
-            <div class="form-row">
-              <label>Display Name (optional)</label>
-              <input class="form-input" x-model="newDisplayName" placeholder="my key">
-            </div>
-            <div class="form-row">
-              <label>API Key</label>
-              <input class="form-input" type="password" x-model="newKey" placeholder="sk-...">
-            </div>
-            <div class="form-row" x-show="needsBaseURL()">
-              <label>Base URL</label>
-              <input class="form-input" x-model="newBaseURL" placeholder="http://localhost:11434">
-            </div>
-            <div class="form-row" x-show="newProvider === 'custom'">
-              <label>API Format</label>
-              <select class="form-input" x-model="newAPIFormat">
-                <option value="openai-compatible">OpenAI-compatible</option>
-                <option value="anthropic-compatible">Anthropic-compatible</option>
-              </select>
-            </div>
-            <div style="display:flex;gap:6px">
-              <button class="btn btn-primary btn-sm" @click="addKey()" :disabled="saving">Add</button>
-              <button class="btn btn-ghost btn-sm" @click="showAddKey=false">Cancel</button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
 
   <!-- ── Main Layout ─────────────────────────────────────────────── -->
   <div class="layout">
@@ -143,11 +45,9 @@
         <span x-text="conversationId ? (title || '(untitled)') : 'Select or create a conversation'"></span>
         <span x-show="streaming" style="color:var(--accent);font-size:11px">● streaming</span>
       </div>
-
       <template x-if="!conversationId">
         <div class="chat-empty">Select a conversation from the sidebar</div>
       </template>
-
       <template x-if="conversationId">
         <div style="display:contents">
           <div class="chat-messages">
@@ -178,10 +78,109 @@
     <!-- Right: Tools Panel -->
     <aside class="tools-panel">
       <div class="tabs-bar">
-        <button class="tab-btn" :class="{active: activeRightTab==='sse'}"   @click="selectTab('sse')">SSE</button>
-        <button class="tab-btn" :class="{active: activeRightTab==='logs'}"  @click="selectTab('logs')">Logs</button>
-        <button class="tab-btn" :class="{active: activeRightTab==='sql'}"   @click="selectTab('sql')">SQL</button>
-        <button class="tab-btn" :class="{active: activeRightTab==='tests'}" @click="selectTab('tests')">Tests</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='config'}" @click="selectTab('config')">Config</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='sse'}"    @click="selectTab('sse')">SSE</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='logs'}"   @click="selectTab('logs')">Logs</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='sql'}"    @click="selectTab('sql')">SQL</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='tests'}"  @click="selectTab('tests')">Tests</button>
+      </div>
+
+      <!-- Config Tab -->
+      <div class="tab-content" x-show="activeRightTab==='config'" x-data="configTab()">
+
+        <!-- API KEYS -->
+        <div class="panel-toolbar" style="justify-content:space-between">
+          <span style="font-size:11px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.6px">API Keys</span>
+          <button class="btn btn-ghost btn-sm" x-show="!showAdd" @click="showAdd=true">+ Add</button>
+        </div>
+
+        <div style="padding:0 8px">
+          <template x-for="k in keys" :key="k.id">
+            <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+              <span style="min-width:68px;font-weight:500"
+                    :style="k.testStatus==='ok' ? 'color:var(--accent)' : 'color:var(--text-dim)'"
+                    x-text="k.provider"></span>
+              <span style="flex:1;font-family:monospace;color:var(--text-mute)" x-text="k.keyMasked"></span>
+              <span x-text="k.testStatus"
+                    :style="k.testStatus==='ok' ? 'color:var(--green)' : k.testStatus==='error' ? 'color:var(--red)' : 'color:var(--text-mute)'"
+                    style="font-size:10px;min-width:40px"></span>
+              <button class="btn btn-ghost btn-sm" @click="testKey(k.id)"
+                      :disabled="busyKeyId !== ''">
+                <span x-show="busyKeyId !== k.id">Test</span>
+                <span x-show="busyKeyId === k.id">…</span>
+              </button>
+              <button class="btn btn-danger btn-sm" @click="delKey(k.id)">✕</button>
+            </div>
+          </template>
+          <div x-show="keys.length===0"
+               style="font-size:11px;color:var(--text-mute);padding:6px 0">No keys yet.</div>
+        </div>
+
+        <!-- add key form -->
+        <div x-show="showAdd" style="padding:8px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:6px">
+          <div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:3px">Provider</div>
+            <select class="filter-input" x-model="ap" style="width:100%;cursor:pointer">
+              <template x-for="p in allProviders" :key="p">
+                <option :value="p" x-text="p"></option>
+              </template>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:3px">API Key</div>
+            <input class="filter-input" type="password" x-model="akey" placeholder="sk-..." style="width:100%">
+          </div>
+          <div x-show="needsURL()">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:3px">Base URL</div>
+            <input class="filter-input" x-model="aurl" placeholder="http://localhost:11434" style="width:100%">
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-primary btn-sm" @click="addKey()" :disabled="addBusy">Add</button>
+            <button class="btn btn-ghost btn-sm" @click="showAdd=false;akey='';aurl=''">Cancel</button>
+          </div>
+        </div>
+
+        <!-- CHAT MODEL -->
+        <div class="panel-toolbar" style="margin-top:4px">
+          <span style="font-size:11px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.6px">Chat Model</span>
+        </div>
+
+        <div style="padding:8px;display:flex;flex-direction:column;gap:6px">
+          <div x-show="okProviders().length===0"
+               style="font-size:11px;color:var(--yellow)">Test a key first.</div>
+
+          <div x-show="okProviders().length > 0">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:3px">Provider</div>
+            <select class="filter-input" x-model="mp" style="width:100%;cursor:pointer">
+              <option value="" disabled>— pick a provider —</option>
+              <template x-for="p in okProviders()" :key="p">
+                <option :value="p" x-text="p"></option>
+              </template>
+            </select>
+          </div>
+
+          <div x-show="mp">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:3px">Model</div>
+            <select class="filter-input" x-model="mid" x-show="modelsForMP().length > 0" style="width:100%;cursor:pointer">
+              <template x-for="m in modelsForMP()" :key="m">
+                <option :value="m" x-text="m"></option>
+              </template>
+            </select>
+            <input class="filter-input" x-model="mid" x-show="modelsForMP().length===0"
+                   placeholder="model id" style="width:100%">
+          </div>
+
+          <div x-show="okProviders().length > 0" style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-primary btn-sm" @click="saveModel()"
+                    :disabled="modelBusy || !mp || !mid.trim()">
+              <span x-show="!modelBusy">Save</span>
+              <span x-show=" modelBusy">Saving…</span>
+            </button>
+            <span x-show="modelConfig" style="font-size:11px;color:var(--text-mute)"
+                  x-text="modelConfig ? modelConfig.provider + ' · ' + modelConfig.modelId : ''"></span>
+          </div>
+        </div>
+
       </div>
 
       <!-- SSE Tab -->
@@ -242,13 +241,11 @@
             <div class="sql-error" x-show="error" x-text="error"></div>
             <template x-if="result">
               <table class="sql-table">
-                <thead>
-                  <tr>
-                    <template x-for="col in result.columns" :key="col">
-                      <th x-text="col"></th>
-                    </template>
-                  </tr>
-                </thead>
+                <thead><tr>
+                  <template x-for="col in result.columns" :key="col">
+                    <th x-text="col"></th>
+                  </template>
+                </tr></thead>
                 <tbody>
                   <template x-for="(row, ri) in result.rows" :key="ri">
                     <tr>
@@ -328,6 +325,7 @@
   <script src="/dev/static/js/tab-logs.js"></script>
   <script src="/dev/static/js/tab-sql.js"></script>
   <script src="/dev/static/js/tab-tests.js"></script>
+  <script src="/dev/static/js/tab-config.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3/dist/cdn.min.js"></script>
 </body>
 </html>

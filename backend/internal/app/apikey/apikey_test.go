@@ -86,7 +86,7 @@ func (r *fakeRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (r *fakeRepo) UpdateTestResult(_ context.Context, id, status, errMsg string) error {
+func (r *fakeRepo) UpdateTestResult(_ context.Context, id, status, errMsg string, _ []string) error {
 	k, ok := r.items[id]
 	if !ok {
 		return apikeydomain.ErrNotFound

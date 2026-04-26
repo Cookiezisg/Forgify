@@ -199,12 +199,17 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 //
 // UpdateTestResult 仅写 test_status / test_error / last_tested_at。
 // Service.Test 和 MarkInvalid 用来避免整行往返。
-func (s *Store) UpdateTestResult(ctx context.Context, id, status, errMsg string) error {
+func (s *Store) UpdateTestResult(ctx context.Context, id, status, errMsg string, models []string) error {
 	uid, err := userID(ctx)
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
+	modelsJSON := "[]"
+	if len(models) > 0 {
+		b, _ := json.Marshal(models)
+		modelsJSON = string(b)
+	}
 	res := s.db.WithContext(ctx).
 		Model(&apikeydomain.APIKey{}).
 		Where("id = ? AND user_id = ?", id, uid).
@@ -212,6 +217,7 @@ func (s *Store) UpdateTestResult(ctx context.Context, id, status, errMsg string)
 			"test_status":    status,
 			"test_error":     errMsg,
 			"last_tested_at": &now,
+			"models_found":   modelsJSON,
 		})
 	if res.Error != nil {
 		return fmt.Errorf("apikeystore.UpdateTestResult: %w", res.Error)

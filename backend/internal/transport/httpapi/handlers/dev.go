@@ -65,7 +65,15 @@ func (h *DevHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dev/sql", h.QuerySQL)
 	mux.HandleFunc("GET /dev/collections", h.ListCollections)
 	// Static files: /dev/static/style.css, /dev/static/js/app.js, etc.
-	mux.Handle("/dev/static/", http.StripPrefix("/dev/static/", http.FileServer(http.Dir(h.integrationDir))))
+	// no-cache so browser always fetches the latest version during dev.
+	// no-cache 避免浏览器缓存旧版本文件。
+	noCache := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			next.ServeHTTP(w, r)
+		})
+	}
+	mux.Handle("/dev/static/", noCache(http.StripPrefix("/dev/static/", http.FileServer(http.Dir(h.integrationDir)))))
 	// Catch-all: serve index.html for /dev/ and any unmatched sub-path.
 	mux.HandleFunc("/dev/", h.ServeIndex)
 }

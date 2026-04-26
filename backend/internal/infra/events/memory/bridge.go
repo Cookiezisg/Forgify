@@ -16,11 +16,11 @@ import (
 )
 
 // defaultBufferSize caps the number of unread events per subscriber.
-// Tuned for SSE: ~64 LLM tokens of slack before we drop.
+// 2048 comfortably covers a full LLM response (~2000 tokens) without dropping.
 //
 // defaultBufferSize 限制单订阅者的未读事件数。
-// 按 SSE 场景调校：约 64 个 LLM token 的余量。
-const defaultBufferSize = 64
+// 2048 足以容纳一次完整 LLM 回复（约 2000 token），不丢事件。
+const defaultBufferSize = 2048
 
 // Bridge is a thread-safe, in-process fan-out event bus.
 //

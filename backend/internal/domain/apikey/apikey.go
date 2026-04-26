@@ -50,6 +50,7 @@ type APIKey struct {
 	TestStatus   string         `gorm:"type:text;default:'pending'" json:"testStatus"`
 	TestError    string         `gorm:"type:text;default:''" json:"testError"`
 	LastTestedAt *time.Time     `json:"lastTestedAt"`
+	ModelsFound  []string       `gorm:"serializer:json;type:text;default:'[]'" json:"modelsFound"`
 	CreatedAt    time.Time      `json:"createdAt"`
 	UpdatedAt    time.Time      `json:"updatedAt"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
@@ -192,12 +193,13 @@ type Repository interface {
 	// Delete 软删除（按 ctx 中用户过滤）。
 	Delete(ctx context.Context, id string) error
 
-	// UpdateTestResult writes only test_status / test_error / last_tested_at.
-	// Used by Service.Test and MarkInvalid to avoid a full-record round-trip.
+	// UpdateTestResult writes test_status / test_error / last_tested_at /
+	// models_found. Pass nil for models when the test produces no model list
+	// (e.g. MarkInvalid).
 	//
-	// UpdateTestResult 只写 test_status / test_error / last_tested_at。
-	// Service.Test 和 MarkInvalid 使用，避免读写整条记录。
-	UpdateTestResult(ctx context.Context, id, status, errMsg string) error
+	// UpdateTestResult 写 test_status / test_error / last_tested_at /
+	// models_found。无模型列表时（如 MarkInvalid）models 传 nil。
+	UpdateTestResult(ctx context.Context, id, status, errMsg string, models []string) error
 }
 
 // KeyProvider is the cross-domain interface. Other services (chat,

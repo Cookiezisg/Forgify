@@ -164,8 +164,15 @@ func main() {
 		log,
 	)
 
-	// Inject Phase 3 system tools into the ReAct Agent.
-	// Phase 3 system tools 注入 ReAct Agent。
+	// Inject all system tools into the ReAct Agent:
+	//   - ForgeTools: user tool library (search/get/create/edit/run)
+	//   - WebTools:   web_search + fetch_url
+	//   - SystemTools: file I/O, shell, python, datetime
+	//
+	// 把所有 system tool 注入 ReAct Agent：
+	//   - ForgeTools：用户工具库（search/get/create/edit/run）
+	//   - WebTools：web_search + fetch_url
+	//   - SystemTools：文件读写、shell、python、datetime
 	forgeTools := agentpkg.ForgeTools(
 		toolService,
 		chatstore.New(gdb),
@@ -174,7 +181,14 @@ func main() {
 		einoFactory,
 		eventsBridge,
 	)
-	chatService.SetTools(forgeTools)
+	webTools, err := agentpkg.WebTools(context.Background())
+	if err != nil {
+		log.Warn("web tools unavailable", zap.Error(err))
+		webTools = nil
+	}
+	allTools := append(forgeTools, webTools...)
+	allTools = append(allTools, agentpkg.SystemTools()...)
+	chatService.SetTools(allTools)
 
 	// Listen first so we know the actual port before building router.Deps.
 	// 先监听，才能在构建 router.Deps 前知道实际端口。

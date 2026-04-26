@@ -162,6 +162,7 @@ func (APIKey) TableName() string { return "api_keys" }
 | `TestStatus` | `pending` / `ok` / `error`，由 Service.Test 或 MarkInvalid 写 |
 | `TestError` | 测试失败时的 human-readable 原因；成功时清空 |
 | `LastTestedAt` | UTC；`UpdateTestResult` 每次调用都写 |
+| `ModelsFound` | `[]string`，GORM `serializer:json` 存为 JSON 字符串；测试成功时写入 provider 返回的模型列表，测试失败或 MarkInvalid 时保持不变（传 nil 跳过更新）；API 响应序列化为 JSON 数组 |
 
 ### 常量（`internal/domain/apikey/apikey.go`，与 entity 同文件）
 
@@ -278,8 +279,9 @@ type Repository interface {
     // Delete soft-deletes by id, scoped to caller.
     Delete(ctx context.Context, id string) error
 
-    // UpdateTestResult writes only test_status / test_error / last_tested_at.
-    UpdateTestResult(ctx context.Context, id, status, errMsg string) error
+    // UpdateTestResult writes test_status / test_error / last_tested_at / models_found.
+    // Pass nil for models when no model list is available (e.g. MarkInvalid).
+    UpdateTestResult(ctx context.Context, id, status, errMsg string, models []string) error
 }
 
 type ListFilter struct {
@@ -295,7 +297,7 @@ type ListFilter struct {
 - `List` 用 `(created_at, id)` 元组 cursor 做稳定分页（时间戳相同也稳定）
 - `GetByProvider` 排序 SQL：`CASE WHEN test_status = 'ok' THEN 0 ELSE 1 END` + `last_tested_at DESC` + `created_at DESC`
 - 软删走 GORM 内置的 `DeletedAt` 字段
-- `UpdateTestResult` 只写 3 列（`test_status` / `test_error` / `last_tested_at`），避免全表往返
+- `UpdateTestResult` 只写 4 列（`test_status` / `test_error` / `last_tested_at` / `models_found`），避免全表往返；`models_found` 用 `json.Marshal(models)` 序列化后存字符串
 
 ---
 
@@ -378,12 +380,12 @@ func (s *Service) MarkInvalid(ctx, provider, reason string) error
 2. encryptor.Decrypt(KeyEncrypted) → 明文
 3. tester.Test(Provider, 明文, BaseURL, APIFormat) → TestResult 或 err
 4a. err != nil（程序 bug 路径）:
-    repo.UpdateTestResult(id, TestStatusError, err.Error())
+    repo.UpdateTestResult(id, TestStatusError, err.Error(), nil)
     上抛包装过的 err
 4b. err == nil:
-    status = TestStatusError; errMsg = result.Message
-    if result.OK: status = TestStatusOK; errMsg = ""
-    repo.UpdateTestResult(id, status, errMsg)
+    status = TestStatusError; errMsg = result.Message; models = nil
+    if result.OK: status = TestStatusOK; errMsg = ""; models = result.ModelsFound
+    repo.UpdateTestResult(id, status, errMsg, models)
 5. log.Info("apikey tested", key_id, provider, ok, latency_ms)
 6. return result
 ```
@@ -755,7 +757,7 @@ func (s *Service) Send(ctx context.Context, in SendInput) error {
                   失败 / 401 / 5xx / 网络错 → TestResult{OK:false, Message, LatencyMs}
                   未知 provider（不该发生）→ error
           → 根据 result.OK 决定 status
-          → repo.UpdateTestResult(id, status, errMsg)
+          → repo.UpdateTestResult(id, status, errMsg, models)  // models=ModelsFound(成功) | nil(失败)
           → log.Info("apikey tested")
       → handler 看 result.OK：
           true  → response.Success(200, {ok, message, latencyMs, modelsFound})

@@ -1,7 +1,7 @@
 # model domain — 详细设计文档
 
 **所属 Phase**：Phase 2（基础对话能力，第 2 个 domain）
-**状态**：🔄 设计已定，代码未开始
+**状态**：✅ 已实现（2026-04-25）
 **职责**：为每个"场景"（scenario）记录用户选定的 `(provider, modelID)`；给 chat / workflow / knowledge 提供"我该用谁"的策略层
 **依赖**：
 - `infra/db`（GORM 底层）+ `pkg/reqctx`（userID ctx 读取）

@@ -50,7 +50,7 @@ GORM tag 表达不了的都在这里：
 
 #### `api_keys` ✅
 详见 [`../service-design-documents/apikey.md`](../service-design-documents/apikey.md) §11。
-主键 `aki_<16hex>`；软删（`DeletedAt`）；全索引 `(user_id)` + `(user_id, provider)` + `(deleted_at)`（目前未走部分索引 `WHERE deleted_at IS NULL`，见 backlog）。敏感字段 `key_encrypted`（AES-GCM `v1:` 前缀，`json:"-"` 守护永不上线）+ `key_masked` 冗余展示。不加 `UNIQUE(user_id, provider)`，允许同 provider 多 key。Provider / TestStatus 的 DB 层 CHECK 约束**未加**，由 app 层校验。
+主键 `aki_<16hex>`；软删（`DeletedAt`）；全索引 `(user_id)` + `(user_id, provider)` + `(deleted_at)`（目前未走部分索引 `WHERE deleted_at IS NULL`，见 backlog）。敏感字段 `key_encrypted`（AES-GCM `v1:` 前缀，`json:"-"` 守护永不上线）+ `key_masked` 冗余展示。不加 `UNIQUE(user_id, provider)`，允许同 provider 多 key。Provider / TestStatus 的 DB 层 CHECK 约束**未加**，由 app 层校验。新增 `models_found TEXT`（GORM `serializer:json`，存 JSON 字符串如 `["deepseek-chat","deepseek-reasoner"]`；测试成功后由 `UpdateTestResult` 写入，测试前为 `[]`）。
 
 #### `model_configs` ✅
 详见 [`../service-design-documents/model.md`](../service-design-documents/model.md) §11。
@@ -70,19 +70,31 @@ chat domain 所有；主键 `att_<16hex>`；字段：`user_id` / `file_name` / `
 
 ### Phase 3
 
-#### `tools` ⬜
-> 4 个 schema 业务问题，做 tool domain 时讨论（见 progress-record.md）：
-> 1. `pending_code` + `pending_summary` 字段对 → 独立 `tool_pending_changes` 表？
-> 2. `tools.version` (TEXT) vs `tool_versions.version` (INTEGER) 语义不一致
-> 3. `tool_test_history` 20 条上限（app 层注释 vs DB 触发器）
-> 4. `conversations.asset_id/asset_type` polymorphism vs 拆 `bound_tool_id` + `bound_workflow_id` 两列
+#### `tools` 🔄
+详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.1。
+主键 `t_<16hex>`；软删（`deleted_at`）；`user_id` 索引；partial UNIQUE `UNIQUE(user_id, name) WHERE deleted_at IS NULL`（在 `schema_extras.go`）。
+字段：`name` / `description` / `code`（当前活跃代码）/ `parameters`（JSON 数组）/ `return_schema`（JSON 对象）/ `tags`（JSON 数组）/ `version_count`（最大已接受版本号，0=未保存）。
+向量索引（name+description）由 chromem-go 管理，路径 `{dataDir}/vectordb/tools`，不经 SQLite。
 
-#### `tool_versions` ⬜
-#### `tool_tags` ⬜
-#### `tool_test_history` ⬜
-#### `tool_test_cases` ⬜
-#### `tool_pending_changes` ⬜（待定）
-#### `attachments` ⬜（如果决定持久化）
+#### `tool_versions` 🔄
+详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.2。
+主键 `tv_<16hex>`；**兼作 pending 变更存储**：`status` 字段区分 `pending`/`accepted`/`rejected`，pending/rejected 时 `version` 为 NULL。
+完整快照字段：`name` / `description` / `code` / `parameters` / `return_schema` / `tags` / `message`（LLM 指令 | "manual edit" | "reverted to v{N}" | "initial"）。
+accepted 版本上限 50 条/工具，超限硬删最旧。
+
+#### `tool_test_cases` 🔄
+详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.3。
+主键 `tc_<16hex>`；`tool_id` 索引。字段：`name` / `input_data`（JSON）/ `expected_output`（JSON，空=不断言）。
+
+#### `tool_run_history` 🔄
+详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.4。
+主键 `trh_<16hex>`；`tool_id` 索引；无软删。每次 `:run` 写一条，保留最近 100 条/工具。
+字段：`tool_version`（执行时版本号）/ `input` / `output` / `ok` / `error_msg` / `elapsed_ms`。
+
+#### `tool_test_history` 🔄
+详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.5。
+主键 `tth_<16hex>`；`tool_id` + `test_case_id` + `batch_id`（索引）；无软删。每次测试用例执行写一条，保留最近 200 条/工具。
+字段：`tool_version` / `test_case_id` / `batch_id`（批跑时共享，单跑为空）/ `input` / `output` / `ok` / `pass`（*bool，nil=无断言）/ `error_msg` / `elapsed_ms`。
 
 ---
 

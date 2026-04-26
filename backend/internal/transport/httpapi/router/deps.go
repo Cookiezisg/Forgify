@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/cloudwego/eino/components/tool"
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
 	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
@@ -84,4 +85,10 @@ type Deps struct {
 	// Port 是服务器实际监听的 TCP 端口。
 	// 供集合测试运行器回调本地后端使用。
 	Port int
+
+	// Tools is the list of system tools registered with the agent, exposed
+	// for direct invocation via /dev/invoke (dev mode only).
+	// Tools 是注册到 agent 的 system tool 列表，在 dev 模式下可通过
+	// /dev/invoke 直接调用。
+	Tools []tool.BaseTool
 }

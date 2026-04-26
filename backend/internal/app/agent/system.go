@@ -53,6 +53,19 @@ func (t *ReadFileTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *ReadFileTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		Path string `json:"path"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.Path
+}
+
 func (t *ReadFileTool) InvokableRun(_ context.Context, argsJSON string, _ ...tool.Option) (string, error) {
 	var args struct {
 		Path string `json:"path"`
@@ -92,6 +105,19 @@ func (t *WriteFileTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *WriteFileTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		Path string `json:"path"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.Path
+}
+
 func (t *WriteFileTool) InvokableRun(_ context.Context, argsJSON string, _ ...tool.Option) (string, error) {
 	var args struct {
 		Path    string `json:"path"`
@@ -125,6 +151,19 @@ func (t *ListDirTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 			"path": {Type: schema.String, Required: true, Desc: "Directory path to list"},
 		}),
 	}, nil
+}
+
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *ListDirTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		Path string `json:"path"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.Path
 }
 
 func (t *ListDirTool) InvokableRun(_ context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -178,6 +217,19 @@ func (t *RunShellTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *RunShellTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		Command string `json:"command"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return "$ " + args.Command
+}
+
 func (t *RunShellTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
 	var args struct {
 		Command string `json:"command"`
@@ -224,6 +276,20 @@ func (t *RunPythonTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 			"code": {Type: schema.String, Required: true, Desc: "Complete Python script to execute"},
 		}),
 	}, nil
+}
+
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *RunPythonTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		Code string `json:"code"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	first := strings.SplitN(strings.TrimSpace(args.Code), "\n", 2)[0]
+	return strings.TrimSpace(first)
 }
 
 func (t *RunPythonTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {

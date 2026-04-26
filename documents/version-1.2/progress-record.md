@@ -18,7 +18,7 @@
 | **Phase 0** | 骨架（go mod + main + /health） | 4h | ✅ | 2026-04-22 |
 | **Phase 1** | 基础 infra 7 件套（GORM / logger / crypto / events / middleware / response / pagination） | 6h | ✅ 72 测试 | 2026-04-23 |
 | **Phase 2** | 基础对话能力（apikey / model / conversation / chat） | ~11h | ✅ ~170 测试 | 2026-04-25 |
-| **Phase 3** | 工具锻造（forge / attachment / tool / chat 加 tool-calling） | ~12h | ⬜ | - |
+| **Phase 3** | 工具锻造（forge / attachment / tool / chat 加 tool-calling） | ~12h | ✅ | 2026-04-26 |
 | **Phase 4** | 工作流（workflow / flowrun / 节点 / scheduler / trigger） | ~20h | ⬜ | - |
 | **Phase 5** | 智能化（knowledge / intent / mcp / skill / chat 终极版） | ~15h | ⬜ | - |
 
@@ -119,6 +119,9 @@ Phase 2 全部完成，Phase 3 开工前需要：
 | 2026-04-26 | **[arch] 工具搜索方案切换**：chromem-go 向量搜索 → LLM 排序（SearchTool 把全部工具发给 LLM 选出最相关 N 个）。准确率更高，无需 embedding API。删除 `infra/vectordb/`，移除 chromem-go 依赖，domain/tool 移除 VectorHit，Repository 加 ListAllTools，Service 移除 VectorDB 依赖。全量编译通过。|
 | 2026-04-26 | **[Phase 3] `infra/sandbox/python.go`**：PythonSandbox 实现，Python subprocess + 30s 超时；extractFuncName 从代码提取函数名；driver 模板追加 __main__ 桥接；Python 异常返回 ok=false 不上升为 Go error。8 测试全绿。|
 | 2026-04-26 | **[Phase 3] `domain/events/types.go` 追加 6 个 tool SSE 事件**：`tool.code_streaming`（加 `MessageID`+`ToolCallID` 绑定对话轮次）/ `tool.created` / `tool.pending_created` / `tool.test_case_generated` / `tool.test_cases_done` / `tool.test_cases_not_supported`。events-design.md + tool.md §13 同步更新。|
+| 2026-04-26 | **[feat] chat tool call 可见性**：`app/chat/chat.go` 按概念拆分为 4 文件（chat.go 公开 API / pipeline.go Agent 执行管道 / interceptor.go tool call 拦截 / util.go 杂项）。新增 `toolInterceptor` 包装所有 tool，在执行前后发布 `chat.tool_call` / `chat.tool_result` SSE 事件（含 `summary` 人类可读核心信息），并将消息追加到 `msgBuf`；turn 结束后一次性批量写入 DB（保证时序正确）。移除早存 streaming 占位符。`toEinoMessage` 修复 assistant ToolCalls 重建逻辑，下一轮对话 LLM 能看到完整 tool call 上下文。新增 `Summarizable` 接口 + `CoreInfo` 方法（system.go 5 个 / web.go 1 个 / forge.go 5 个）+ fallback key 提取。`events/types.go` 的 `ChatToolCall` 加 `summary` 字段。chat.md §3.3/§3.5/§5.4-5.6 同步更新。|
+| 2026-04-26 | **[feat] testend 工具面板**：新增 Tools tab（System + User Tools 子面板）。`GET /dev/tools` 列出注册 tool 名称/描述；`POST /dev/invoke` 直接调用任意 system tool（绕过 LLM agent，用于冒烟）。`router/deps.go` 加 `Tools []tool.BaseTool`；`handlers/dev.go` 加 2 个 handler；`main.go` 传 `allTools`。`testend/js/tab-tools.js` + HTML + CSS。testend-design.md §dev endpoints + §右侧面板 同步更新。|
+| 2026-04-26 | **[feat] testend SSE 双视图 + chat tool 步骤卡片**：SSE 标签页加 Stream/Raw 切换（Stream 视图按 messageId 聚合显示拼装文本 + tool call 摘要）。chat 面板 assistant 消息内嵌 tool step collapsible 卡片（⚙ running → ✓ ok/✗ error，可展开 input/output）。SQL 快捷查询补齐 5 个 tool 表。相关文件：chat.js / tab-sse.js / tab-sql.js / tester.html / style.css。|
 | 2026-04-26 | **[Phase 3 开工] tool domain layer**：完成 `domain/tool/tool.go`。5 个 entity（Tool / ToolVersion / ToolTestCase / ToolRunHistory / ToolTestHistory）+ ExecutionResult（定义在 domain 层避免 infra/sandbox ↔ app/tool 循环依赖）+ 9 个 sentinel + Repository 接口（30 个方法）+ 常量。ToolVersion 合并 pending 职责（status 字段区分 pending/accepted/rejected）。编译通过，database-design.md + error-codes.md 同步更新。|
 
 ---

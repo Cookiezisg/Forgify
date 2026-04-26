@@ -47,7 +47,7 @@ func New(deps Deps) http.Handler {
 		handlers.NewChatHandler(deps.ChatService, deps.EventsBridge, deps.Log).Register(mux)
 	}
 	if deps.Dev {
-		handlers.NewDevHandler(deps.DB, deps.LogBroadcaster, deps.CollectionsDir, deps.IntegrationDir, deps.Port, deps.Log).Register(mux)
+		handlers.NewDevHandler(deps.DB, deps.LogBroadcaster, deps.CollectionsDir, deps.IntegrationDir, deps.Port, deps.Tools, deps.Log).Register(mux)
 	}
 
 	// 404 fallback — must be last so specific routes take precedence.

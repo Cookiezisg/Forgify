@@ -40,7 +40,8 @@ type ChatToolCall struct {
 	MessageID      string `json:"messageId"`
 	ToolCallID     string `json:"toolCallId"`
 	ToolName       string `json:"toolName"`
-	ToolInput      string `json:"toolInput"` // JSON string
+	ToolInput      string `json:"toolInput"` // JSON string of full arguments
+	Summary        string `json:"summary"`   // human-readable core info, e.g. "$ git status"
 }
 
 // EventName returns "chat.tool_call".

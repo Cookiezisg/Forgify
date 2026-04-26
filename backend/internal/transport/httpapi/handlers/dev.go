@@ -9,6 +9,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 )
 
@@ -33,6 +35,7 @@ type DevHandler struct {
 	collectionsDir string
 	integrationDir string
 	port           int
+	tools          []tool.BaseTool
 	log            *zap.Logger
 }
 
@@ -44,6 +47,7 @@ func NewDevHandler(
 	broadcaster *logger.LogBroadcaster,
 	collectionsDir, integrationDir string,
 	port int,
+	tools []tool.BaseTool,
 	log *zap.Logger,
 ) *DevHandler {
 	return &DevHandler{
@@ -52,6 +56,7 @@ func NewDevHandler(
 		collectionsDir: collectionsDir,
 		integrationDir: integrationDir,
 		port:           port,
+		tools:          tools,
 		log:            log,
 	}
 }
@@ -64,6 +69,8 @@ func (h *DevHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dev/logs", h.StreamLogs)
 	mux.HandleFunc("POST /dev/sql", h.QuerySQL)
 	mux.HandleFunc("GET /dev/collections", h.ListCollections)
+	mux.HandleFunc("GET /dev/tools", h.ListTools)
+	mux.HandleFunc("POST /dev/invoke", h.InvokeTool)
 	// Static files: /dev/static/style.css, /dev/static/js/app.js, etc.
 	// no-cache so browser always fetches the latest version during dev.
 	// no-cache 避免浏览器缓存旧版本文件。
@@ -289,6 +296,100 @@ func (h *DevHandler) ListCollections(w http.ResponseWriter, r *http.Request) {
 		cols = []Collection{}
 	}
 	writeDevJSON(w, http.StatusOK, cols)
+}
+
+// ── GET /dev/tools ────────────────────────────────────────────────────────────
+
+type devToolSummary struct {
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+}
+
+// ListTools returns the name and description of every system tool registered
+// with the agent, so the testend invoke panel can populate its dropdown.
+//
+// ListTools 返回注册到 agent 的每个 system tool 的名称和描述，
+// 供 testend invoke 面板填充下拉列表。
+func (h *DevHandler) ListTools(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	out := make([]devToolSummary, 0, len(h.tools))
+	for _, t := range h.tools {
+		info, err := t.Info(ctx)
+		if err != nil {
+			continue
+		}
+		out = append(out, devToolSummary{Name: info.Name, Desc: info.Desc})
+	}
+	writeDevJSON(w, http.StatusOK, out)
+}
+
+// ── POST /dev/invoke ──────────────────────────────────────────────────────────
+
+type invokeRequest struct {
+	Tool string `json:"tool"`
+	Args string `json:"args"` // JSON-encoded arguments for the tool
+}
+
+type invokeResponse struct {
+	Output    string `json:"output"`
+	OK        bool   `json:"ok"`
+	ElapsedMs int64  `json:"elapsedMs"`
+	Error     string `json:"error,omitempty"`
+}
+
+// invokable matches tool.InvokableTool without importing the concrete type,
+// allowing a safe type assertion on tool.BaseTool values.
+type invokable interface {
+	InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error)
+}
+
+// InvokeTool directly runs a named system tool with caller-supplied JSON args.
+// Useful for smoke-testing tools without going through the LLM agent.
+//
+// InvokeTool 用调用方提供的 JSON 参数直接运行指定 system tool，
+// 无需经过 LLM agent，方便冒烟测试。
+func (h *DevHandler) InvokeTool(w http.ResponseWriter, r *http.Request) {
+	var req invokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeDevJSON(w, http.StatusBadRequest, invokeResponse{Error: "invalid JSON"})
+		return
+	}
+	if req.Tool == "" {
+		writeDevJSON(w, http.StatusBadRequest, invokeResponse{Error: "tool is required"})
+		return
+	}
+	if req.Args == "" {
+		req.Args = "{}"
+	}
+
+	ctx := r.Context()
+	var target invokable
+	for _, t := range h.tools {
+		info, err := t.Info(ctx)
+		if err != nil {
+			continue
+		}
+		if info.Name == req.Tool {
+			if inv, ok := t.(invokable); ok {
+				target = inv
+			}
+			break
+		}
+	}
+	if target == nil {
+		writeDevJSON(w, http.StatusNotFound, invokeResponse{Error: "tool not found: " + req.Tool})
+		return
+	}
+
+	start := time.Now()
+	output, err := target.InvokableRun(ctx, req.Args)
+	elapsed := time.Since(start).Milliseconds()
+
+	if err != nil {
+		writeDevJSON(w, http.StatusOK, invokeResponse{Output: output, OK: false, ElapsedMs: elapsed, Error: err.Error()})
+		return
+	}
+	writeDevJSON(w, http.StatusOK, invokeResponse{Output: output, OK: true, ElapsedMs: elapsed})
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

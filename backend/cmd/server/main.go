@@ -212,6 +212,7 @@ func main() {
 		ChatService:         chatService,
 		EventsBridge:        eventsBridge,
 		Dev:                 *dev,
+		Tools:               allTools,
 		DB:                  gdb,
 		LogBroadcaster:      broadcaster,
 		CollectionsDir:      *collectionsDir,

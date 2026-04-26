@@ -54,6 +54,31 @@
             <template x-for="m in messages" :key="m.id">
               <div class="msg" :class="m.role">
                 <span class="msg-role" x-text="m.role"></span>
+                <template x-if="m.steps && m.steps.length">
+                  <div class="tool-steps">
+                    <template x-for="s in m.steps" :key="s.toolCallId">
+                      <details class="tool-step-card" :open="s.result === null">
+                        <summary class="tool-step-summary">
+                          <span class="tool-step-icon" x-text="s.result === null ? '⚙' : (s.ok ? '✓' : '✗')"></span>
+                          <span class="tool-step-name" x-text="s.toolName"></span>
+                          <span class="tool-step-status"
+                                :class="s.result === null ? 'running' : (s.ok ? 'ok' : 'err')"
+                                x-text="s.result === null ? 'running…' : (s.ok ? 'ok' : 'error')"></span>
+                        </summary>
+                        <div class="tool-step-body">
+                          <div class="tool-step-section">in</div>
+                          <pre class="tool-step-pre" x-text="tryFmt(s.input)"></pre>
+                          <template x-if="s.result !== null">
+                            <div>
+                              <div class="tool-step-section">out</div>
+                              <pre class="tool-step-pre" x-text="tryFmt(s.result)"></pre>
+                            </div>
+                          </template>
+                        </div>
+                      </details>
+                    </template>
+                  </div>
+                </template>
                 <div class="msg-bubble" x-text="m.content || (m.status==='streaming' ? '…' : '')"></div>
                 <span class="msg-status" :class="m.status"
                       x-show="m.status !== 'completed'"
@@ -83,6 +108,7 @@
         <button class="tab-btn" :class="{active: activeRightTab==='logs'}"   @click="selectTab('logs')">Logs</button>
         <button class="tab-btn" :class="{active: activeRightTab==='sql'}"    @click="selectTab('sql')">SQL</button>
         <button class="tab-btn" :class="{active: activeRightTab==='tests'}"  @click="selectTab('tests')">Tests</button>
+        <button class="tab-btn" :class="{active: activeRightTab==='tools'}"  @click="selectTab('tools')">Tools</button>
       </div>
 
       <!-- Config Tab -->
@@ -188,9 +214,40 @@
         <div class="panel-toolbar">
           <span style="font-size:11px;color:var(--text-mute)"
                 x-text="conversationId ? 'conv: '+conversationId.slice(0,12)+'…' : 'No conversation'"></span>
+          <div style="display:flex;gap:2px;margin-left:auto">
+            <button class="sse-view-btn" :class="{active: view==='stream'}" @click="view='stream'">Stream</button>
+            <button class="sse-view-btn" :class="{active: view==='raw'}"    @click="view='raw'">Raw</button>
+          </div>
           <button class="btn btn-ghost btn-sm" @click="clear()">Clear</button>
         </div>
-        <div class="event-log">
+
+        <!-- Stream view -->
+        <div class="event-log" x-show="view==='stream'">
+          <template x-for="(turn, i) in turns" :key="i">
+            <div class="sse-turn">
+              <div class="sse-turn-header" x-text="'msg ' + shortId(turn.messageId)"></div>
+              <template x-for="tc in turn.toolCalls" :key="tc.toolCallId">
+                <div class="sse-tool-row">
+                  <span class="sse-tool-icon" x-text="tc.result === null ? '⚙' : (tc.ok ? '✓' : '✗')"></span>
+                  <span class="sse-tool-name" x-text="tc.toolName"></span>
+                  <details style="flex:1;min-width:0">
+                    <summary style="cursor:pointer;color:var(--text-mute);font-size:10px">input / output</summary>
+                    <pre class="sse-pre" x-text="tryFmt(tc.input)"></pre>
+                    <pre class="sse-pre" x-show="tc.result !== null" x-text="tryFmt(tc.result)"></pre>
+                  </details>
+                </div>
+              </template>
+              <pre class="sse-text" x-show="turn.text" x-text="turn.text"></pre>
+              <div x-show="turn.done" class="sse-done" x-text="'▶ ' + turn.stopReason"></div>
+              <div x-show="turn.error" class="sse-error" x-text="turn.error"></div>
+            </div>
+          </template>
+          <div x-show="turns.length === 0"
+               style="color:var(--text-mute);font-size:11px;padding:8px">Waiting for events…</div>
+        </div>
+
+        <!-- Raw view -->
+        <div class="event-log" x-show="view==='raw'">
           <template x-for="(ev, i) in events" :key="i">
             <div class="event-item">
               <span class="event-name" :class="cssClass(ev.type)" x-text="ev.type"></span>
@@ -314,6 +371,101 @@
         </div>
       </div>
 
+
+      <!-- Tools Tab -->
+      <div class="tab-content" x-show="activeRightTab==='tools'" x-data="toolsTab()">
+
+        <!-- sub-tab toggle -->
+        <div class="panel-toolbar" style="gap:4px">
+          <button class="tools-section-btn" :class="{active: section==='system'}" @click="section='system'">System</button>
+          <button class="tools-section-btn" :class="{active: section==='user'}"   @click="section='user'">User Tools</button>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto"
+                  @click="loadSysTools();loadUserTools()">↻</button>
+        </div>
+
+        <!-- System Tools invoke -->
+        <div x-show="section==='system'" class="tools-invoke-area">
+          <div class="tools-field">
+            <div class="tools-label">Tool</div>
+            <select class="filter-input" x-model="sysSelected" style="width:100%;cursor:pointer">
+              <template x-for="t in sysTools" :key="t.name">
+                <option :value="t.name" x-text="t.name"></option>
+              </template>
+            </select>
+          </div>
+          <div class="tools-field" x-show="sysDesc">
+            <div class="tools-desc" x-text="sysDesc"></div>
+          </div>
+          <div class="tools-field">
+            <div class="tools-label">Args (JSON)</div>
+            <textarea class="tools-args-input" x-model="sysArgs"
+                      @keydown="handleSysKeydown($event)"
+                      placeholder="{}" spellcheck="false"></textarea>
+          </div>
+          <div class="tools-run-bar">
+            <button class="btn btn-primary btn-sm" @click="invokeSystem()" :disabled="sysLoading || !sysSelected"
+                    x-text="sysLoading ? 'Running…' : '▶ Run (Ctrl+Enter)'"></button>
+          </div>
+          <template x-if="sysResult">
+            <div class="tools-result">
+              <div class="tools-result-meta">
+                <span :class="sysResult.ok ? 'tools-ok' : 'tools-err'"
+                      x-text="sysResult.ok ? 'ok' : 'error'"></span>
+                <span class="tools-elapsed" x-text="sysResult.elapsedMs + 'ms'"></span>
+                <span x-show="sysResult.error" class="tools-err" x-text="sysResult.error"></span>
+              </div>
+              <pre class="tools-output" x-text="sysPretty()"></pre>
+            </div>
+          </template>
+        </div>
+
+        <!-- User Tools browser -->
+        <div x-show="section==='user'" class="tools-user-area">
+          <div class="panel-toolbar" style="border-top:none">
+            <input class="filter-input" x-model="userSearch" placeholder="Search tools…">
+          </div>
+          <div class="tools-user-list">
+            <template x-for="t in filteredUserTools" :key="t.id">
+              <div class="tools-user-item" :class="{active: userSelected?.id===t.id}" @click="selectUser(t)">
+                <div class="tools-user-name" x-text="t.name"></div>
+                <div class="tools-user-desc" x-text="t.description"></div>
+              </div>
+            </template>
+            <div x-show="filteredUserTools.length===0"
+                 style="padding:12px;font-size:11px;color:var(--text-mute)">No tools found.</div>
+          </div>
+          <template x-if="userSelected">
+            <div class="tools-user-detail">
+              <div class="tools-label" x-text="userSelected.name"></div>
+              <pre class="tools-code-preview" x-text="userSelected.code"></pre>
+              <div class="tools-field" style="margin-top:6px">
+                <div class="tools-label">Input (JSON)</div>
+                <textarea class="tools-args-input" x-model="userInput"
+                          @keydown="handleUserKeydown($event)"
+                          placeholder="{}" spellcheck="false"></textarea>
+              </div>
+              <div class="tools-run-bar">
+                <button class="btn btn-primary btn-sm" @click="runUser()" :disabled="userLoading"
+                        x-text="userLoading ? 'Running…' : '▶ Run (Ctrl+Enter)'"></button>
+              </div>
+              <template x-if="userResult">
+                <div class="tools-result">
+                  <div class="tools-result-meta">
+                    <span :class="userResult.ok ? 'tools-ok' : 'tools-err'"
+                          x-text="userResult.ok ? 'ok' : 'error'"></span>
+                    <span x-show="userResult.elapsedMs" class="tools-elapsed"
+                          x-text="userResult.elapsedMs + 'ms'"></span>
+                    <span x-show="userResult.errorMsg" class="tools-err" x-text="userResult.errorMsg"></span>
+                  </div>
+                  <pre class="tools-output" x-text="userResultPretty()"></pre>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+      </div>
+
     </aside>
   </div>
 
@@ -326,6 +478,7 @@
   <script src="/dev/static/js/tab-sql.js"></script>
   <script src="/dev/static/js/tab-tests.js"></script>
   <script src="/dev/static/js/tab-config.js"></script>
+  <script src="/dev/static/js/tab-tools.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3/dist/cdn.min.js"></script>
 </body>
 </html>

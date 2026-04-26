@@ -168,6 +168,19 @@ func (t *SearchTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *SearchTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		Query string `json:"query"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.Query
+}
+
 func (t *SearchTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
 	var args struct {
 		Query string `json:"query"`
@@ -277,6 +290,19 @@ func (t *GetTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *GetTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		ToolID string `json:"tool_id"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.ToolID
+}
+
 func (t *GetTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
 	var args struct {
 		ToolID string `json:"tool_id"`
@@ -332,6 +358,19 @@ func (t *CreateTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 			"instruction": {Type: schema.String, Required: true, Desc: "Detailed code generation instruction"},
 		}),
 	}, nil
+}
+
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *CreateTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		Name string `json:"name"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.Name
 }
 
 func (t *CreateTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -397,6 +436,27 @@ func (t *EditTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 			"description": {Type: schema.String, Required: false, Desc: "New description"},
 		}),
 	}, nil
+}
+
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *EditTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		ToolID      string `json:"tool_id"`
+		Instruction string `json:"instruction"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	instr := args.Instruction
+	if len(instr) > 40 {
+		instr = instr[:40] + "…"
+	}
+	if args.ToolID != "" && instr != "" {
+		return args.ToolID + ": " + instr
+	}
+	return args.ToolID + instr
 }
 
 func (t *EditTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -469,6 +529,19 @@ func (t *RunTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 			"input":   {Type: schema.Object, Required: true, Desc: "Input parameters matching the tool's signature"},
 		}),
 	}, nil
+}
+
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *RunTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		ToolID string `json:"tool_id"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.ToolID
 }
 
 func (t *RunTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {

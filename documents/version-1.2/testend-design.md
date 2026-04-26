@@ -108,6 +108,22 @@ Response: { "columns": ["id", "role", ...], "rows": [["msg_x", "user"], ...] }
 扫描 `integration/collections/*.yaml`，返回每个集合的 name / description / step 数量。
 路径通过启动参数 `--collections-dir` 传入（main.go → Deps）。
 
+#### `GET /dev/tools` — 列出 system tools
+返回所有注册到 agent 的 system tool 名称和描述。
+```
+Response: [{"name": "web_search", "desc": "..."}, ...]
+```
+
+#### `POST /dev/invoke` — 直接调用 system tool
+绕过 LLM agent 直接执行指定 system tool，供调试使用。
+```
+Request:  { "tool": "web_search", "args": "{\"query\": \"go generics\"}" }
+Response: { "output": "...", "ok": true, "elapsedMs": 342 }
+         | { "output": "", "ok": false, "elapsedMs": 12, "error": "tool not found: xxx" }
+```
+- `args` 为 JSON 字符串，传给 tool 的 `InvokableRun`；省略时默认 `{}`
+- `tool` 名称不存在或 tool 未实现 `InvokableTool` 接口时返回 404
+
 #### `POST /dev/collections/{name}/run` — 运行测试集合
 - 按 YAML step 顺序执行，每步发 HTTP 请求到本机后端
 - 支持上下文变量捕获（`capture.convId: "$.data.id"`）和替换（`{{convId}}`）
@@ -117,14 +133,13 @@ Response: { "columns": ["id", "role", ...], "rows": [["msg_x", "user"], ...] }
 
 ---
 
-## 右侧工具面板（5 个 Tab）
+## 右侧工具面板（6 个 Tab）
 
 ### Tab 1 — SSE
-- 连接 `GET /api/v1/events?conversationId={当前对话}` 的 EventSource
-- 每个事件 pretty-print JSON，带事件名 badge 颜色区分
-  - `chat.token` = 蓝 / `chat.done` = 绿 / `chat.error` = 红 / `conversation.title_updated` = 紫
-- 切换对话时自动重新订阅
-- Auto-scroll + Clear 按钮
+- **Stream 视图**（默认）：按 messageId 聚合，每轮一个蓝左边框块，展示工具调用摘要 + 拼装文本
+- **Raw 视图**：逐条 pretty-print JSON，[Stream][Raw] 切换按钮
+- 支持 `chat.tool_call` / `chat.tool_result` 事件展示工具 input/output（可展开 details）
+- 切换对话时自动重新订阅，Clear 按钮同时清空两个视图
 
 ### Tab 2 — Logs
 - 连接 `GET /dev/logs` EventSource
@@ -136,12 +151,8 @@ Response: { "columns": ["id", "role", ...], "rows": [["msg_x", "user"], ...] }
 ### Tab 3 — SQL
 - textarea 输入 SQL → Run → `POST /dev/sql`
 - 结果渲染为可横向滚动的 HTML table，含行数统计
-- 快捷按钮（点击填入 textarea）：
-  - `SELECT * FROM messages ORDER BY created_at DESC LIMIT 20`
-  - `SELECT * FROM conversations WHERE deleted_at IS NULL`
-  - `SELECT * FROM api_keys WHERE deleted_at IS NULL`
-  - `SELECT * FROM model_configs WHERE deleted_at IS NULL`
-  - `SELECT * FROM chat_attachments`
+- 快捷按钮：messages / conversations / api_keys / model_configs / attachments /
+  tools / tool_versions / tool_test_cases / tool_run_history / tool_test_history
 
 ### Tab 4 — Tests（测试集合）
 - 左侧：集合列表（`GET /dev/collections`）
@@ -149,6 +160,23 @@ Response: { "columns": ["id", "role", ...], "rows": [["msg_x", "user"], ...] }
 - 运行时每步实时更新状态：⏳ running / ✅ pass / ❌ fail
 - 每步可展开：请求详情 + 响应体 + assert 结果 + latencyMs
 - 顶部环境变量输入框（`KEY=VALUE` 格式，注入 `{{env.KEY}}`）
+
+### Tab 5 — Config
+- API Keys CRUD + test connectivity
+- Chat Model 选择
+
+### Tab 6 — Tools
+两个子面板通过 [System][User Tools] 切换：
+
+**System 子面板**（`/dev/invoke`）
+- 下拉选择 tool（`GET /dev/tools` 填充）
+- JSON textarea 填入参数（Ctrl+Enter 运行）
+- 展示 output、ok/error、elapsedMs
+
+**User Tools 子面板**（`/api/v1/tools`）
+- 可搜索的工具列表（最多 200 条）
+- 点击工具 → 展示代码预览 + JSON input 表单
+- Run 按钮 → `POST /api/v1/tools/:id:run` → 展示 ExecutionResult
 
 ---
 

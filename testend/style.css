@@ -281,6 +281,63 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .t-status.err { color: var(--red); }
 .t-detail { padding: 0 8px 6px 58px; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; font-size: 10px; }
 
+/* ── Tool Step Cards (chat panel) ── */
+.tool-steps { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; max-width: 100%; }
+.tool-step-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; }
+.tool-step-summary { display: flex; align-items: center; gap: 5px; padding: 4px 8px; cursor: pointer; list-style: none; user-select: none; }
+.tool-step-summary::-webkit-details-marker { display: none; }
+.tool-step-icon { font-size: 12px; flex-shrink: 0; color: var(--text-mute); }
+.tool-step-card[open] .tool-step-icon { color: var(--accent); }
+.tool-step-name { font-family: 'Consolas', monospace; color: var(--text); flex: 1; }
+.tool-step-status { font-size: 10px; }
+.tool-step-status.running { color: var(--accent); }
+.tool-step-status.ok  { color: var(--green); }
+.tool-step-status.err { color: var(--red); }
+.tool-step-body { padding: 4px 8px 6px; border-top: 1px solid var(--border); }
+.tool-step-section { font-size: 10px; color: var(--text-mute); text-transform: uppercase; letter-spacing: .5px; margin: 3px 0 2px; }
+.tool-step-pre { font-family: 'Consolas', monospace; font-size: 10px; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
+
+/* ── SSE Stream view ── */
+.sse-view-btn { font-size: 10px; padding: 2px 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; border-radius: 2px; }
+.sse-view-btn:hover { background: var(--bg3); }
+.sse-view-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sse-turn { border-left: 2px solid var(--accent); padding: 6px 8px; margin-bottom: 8px; }
+.sse-turn-header { font-size: 10px; color: var(--text-mute); margin-bottom: 4px; font-family: monospace; }
+.sse-tool-row { display: flex; align-items: flex-start; gap: 5px; font-size: 11px; margin-bottom: 3px; }
+.sse-tool-icon { flex-shrink: 0; color: var(--text-mute); font-size: 11px; }
+.sse-tool-name { font-family: monospace; color: var(--text-dim); flex-shrink: 0; min-width: 80px; }
+.sse-pre { font-family: 'Consolas', monospace; font-size: 10px; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; max-height: 80px; overflow-y: auto; margin-top: 2px; }
+.sse-text { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; line-height: 1.5; margin-top: 4px; }
+.sse-done { font-size: 10px; color: var(--green); margin-top: 3px; }
+.sse-error { font-size: 10px; color: var(--red); margin-top: 3px; }
+
+/* ── Tools Tab ── */
+.tools-section-btn { font-size: 11px; padding: 3px 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; border-radius: 2px; }
+.tools-section-btn:hover { background: var(--bg3); }
+.tools-section-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tools-invoke-area { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.tools-user-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.tools-field { display: flex; flex-direction: column; gap: 3px; }
+.tools-label { font-size: 10px; color: var(--text-mute); text-transform: uppercase; letter-spacing: .5px; }
+.tools-desc { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+.tools-args-input { width: 100%; background: #fafafa; border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 3px; font-family: 'Consolas', monospace; font-size: 11px; resize: vertical; outline: none; min-height: 70px; }
+.tools-args-input:focus { border-color: var(--accent); }
+.tools-run-bar { padding: 2px 0; }
+.tools-result { border: 1px solid var(--border); border-radius: 3px; background: #fafafa; }
+.tools-result-meta { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 10px; }
+.tools-ok  { color: var(--green); font-weight: 600; }
+.tools-err { color: var(--red); }
+.tools-elapsed { color: var(--text-mute); }
+.tools-output { padding: 6px 8px; font-family: 'Consolas', monospace; font-size: 10px; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+.tools-user-list { flex: 0 0 auto; max-height: 180px; overflow-y: auto; border-bottom: 1px solid var(--border); }
+.tools-user-item { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+.tools-user-item:hover { background: var(--bg2); }
+.tools-user-item.active { background: var(--bg3); border-left: 2px solid var(--accent); padding-left: 8px; }
+.tools-user-name { font-size: 12px; color: var(--text); font-family: 'Consolas', monospace; }
+.tools-user-desc { font-size: 10px; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tools-user-detail { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.tools-code-preview { font-family: 'Consolas', monospace; font-size: 10px; color: var(--text-dim); background: #fafafa; border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
+
 /* ── Config Tab ── */
 .cfg-area { overflow-y: auto; flex: 1; }
 .cfg-section { padding: 10px 12px 8px; border-bottom: 1px solid var(--border); }

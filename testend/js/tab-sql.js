@@ -8,11 +8,16 @@ document.addEventListener('alpine:init', () => {
     loading: false,
 
     shortcuts: [
-      { label: 'messages',      sql: 'SELECT * FROM messages ORDER BY created_at DESC LIMIT 20' },
-      { label: 'conversations', sql: "SELECT * FROM conversations WHERE deleted_at IS NULL ORDER BY created_at DESC" },
-      { label: 'api_keys',      sql: "SELECT id, provider, display_name, key_masked, test_status FROM api_keys WHERE deleted_at IS NULL" },
-      { label: 'model_configs', sql: "SELECT * FROM model_configs WHERE deleted_at IS NULL" },
-      { label: 'attachments',   sql: 'SELECT * FROM chat_attachments ORDER BY created_at DESC LIMIT 20' },
+      { label: 'messages',          sql: 'SELECT * FROM messages ORDER BY created_at DESC LIMIT 20' },
+      { label: 'conversations',     sql: "SELECT * FROM conversations WHERE deleted_at IS NULL ORDER BY created_at DESC" },
+      { label: 'api_keys',          sql: "SELECT id, provider, display_name, key_masked, test_status FROM api_keys WHERE deleted_at IS NULL" },
+      { label: 'model_configs',     sql: "SELECT * FROM model_configs WHERE deleted_at IS NULL" },
+      { label: 'attachments',       sql: 'SELECT * FROM chat_attachments ORDER BY created_at DESC LIMIT 20' },
+      { label: 'tools',             sql: "SELECT id, name, description, tags FROM tools WHERE deleted_at IS NULL ORDER BY created_at DESC" },
+      { label: 'tool_versions',     sql: "SELECT id, tool_id, version, status, message FROM tool_versions ORDER BY created_at DESC LIMIT 20" },
+      { label: 'tool_test_cases',   sql: "SELECT id, tool_id, name, input_data, expected_output FROM tool_test_cases WHERE deleted_at IS NULL" },
+      { label: 'tool_run_history',  sql: "SELECT id, tool_id, tool_version, ok, elapsed_ms, created_at FROM tool_run_history ORDER BY created_at DESC LIMIT 20" },
+      { label: 'tool_test_history', sql: "SELECT id, tool_id, batch_id, ok, pass, created_at FROM tool_test_history ORDER BY created_at DESC LIMIT 20" },
     ],
 
     async run() {

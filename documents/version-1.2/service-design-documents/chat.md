@@ -146,6 +146,8 @@ agent, err := react.NewAgent(ctx, &react.AgentConfig{
 
 ### 3.3 Agent 流式执行
 
+`agent.Stream()` 的 Recv() 循环**只处理文本 token**。tool call / tool result 事件由 `toolInterceptor`（§3.5）在工具执行前后主动发布，不从 stream chunks 里读取。
+
 ```go
 streamResult, err := agent.Stream(ctx, historyMessages)
 defer streamResult.Close()
@@ -155,12 +157,10 @@ for {
     if errors.Is(err, io.EOF) { break }
     if err != nil { /* push chat.error event */ break }
 
-    // chunk 是 *schema.Message
     // chunk.Content != "" → LLM 正在输出 token → 推 chat.token 事件
-    // chunk.ToolCalls != nil → LLM 决定调工具 → 推 chat.tool_call 事件
-    // 工具执行后 chunk.Role == "tool" → 推 chat.tool_result 事件
+    // tool call / tool result 事件由 toolInterceptor 处理，不在这里
 }
-// 推 chat.done 事件
+// 推 chat.done 事件；一次性把 msgBuf 写入 DB（见 §5.4）
 ```
 
 ### 3.4 ⚠️ Claude StreamToolCallChecker（关键陷阱）
@@ -183,33 +183,43 @@ anthropicChecker := func(ctx context.Context, sr *schema.StreamReader[*schema.Me
 
 **每个 provider 的 StreamToolCallChecker 实现放在 `infra/eino/<provider>.go`。**
 
-### 3.5 Callbacks：SSE 事件推送的接入点
+### 3.5 toolInterceptor：Tool Call 可见性
 
-Eino 的 Callback 系统在每个 Agent 步骤的 OnStart/OnEnd 处 hook，这是将 Agent 内部状态推送为 SSE 事件的最佳位置：
+实际实现**不使用** Eino Callbacks，而是用 `toolInterceptor` 包装每个 `tool.BaseTool`，在执行前后钩入事件发布和消息缓冲：
 
 ```go
-handler := callbacks.HandlerBuilder[any]{}.
-    OnStart(func(ctx context.Context, info *callbacks.RunInfo, input any) context.Context {
-        if info.Component == callbacks.ComponentOfChatModel {
-            // LLM 开始推理 → 推 chat.thinking 事件（如果模型支持）
-        }
-        if info.Component == callbacks.ComponentOfTool {
-            // Tool 开始执行 → 推 chat.tool_call 事件（含 tool name + input）
-            events.Bridge.Publish(ctx, ChatToolCallEvent{...})
-        }
-        return ctx
-    }).
-    OnEnd(func(ctx context.Context, info *callbacks.RunInfo, output any) context.Context {
-        if info.Component == callbacks.ComponentOfTool {
-            // Tool 执行完成 → 推 chat.tool_result 事件（含 result）
-            events.Bridge.Publish(ctx, ChatToolResultEvent{...})
-        }
-        return ctx
-    }).
-    Build()
+// app/chat/interceptor.go
+
+type toolInterceptor struct {
+    inner  tool.BaseTool
+    convID string
+    msgID  string   // 当前轮次的 assistant message ID，用于 SSE 关联
+    bridge events.Bridge
+    buf    *[]*chatdomain.Message  // 指向 processTask 的 msgBuf，turn 结束后统一写 DB
+    ...
+}
+
+func (t *toolInterceptor) InvokableRun(ctx, argsJSON string, ...) (string, error) {
+    // 1. 计算 summary（CoreInfo 或 fallback key 提取）
+    // 2. bridge.Publish(ChatToolCall{summary: ..., toolInput: ...})
+    // 3. 追加 role=assistant + ToolCalls JSON 到 *buf（不写 DB）
+    // 4. 调真实 tool.InvokableRun
+    // 5. bridge.Publish(ChatToolResult{result: ..., ok: ...})
+    // 6. 追加 role=tool + ToolCallID 到 *buf（不写 DB）
+}
 ```
 
-Token streaming（chat.token）直接在 Agent.Stream() 的 Recv() 循环里推送，不走 Callback。
+**Summarizable 接口**（可选）：每个 tool 可实现 `CoreInfo(argsJSON string) string` 返回人类可读的核心信息（如 `"$ git status"`、`"/Users/sunweilin"`），写入 `ChatToolCall.Summary` 字段推给前端。未实现的 tool 通过 fallback 扫描 `query`/`url`/`path`/`command` 等常见字段名提取。
+
+**wrapTools** 在 processTask 构建 agent 前被调用，把 `s.tools` 全部包一层 `toolInterceptor` 后传给 `ToolsNodeConfig.Tools`。
+
+```
+app/chat/
+  chat.go         ← 公开 API：Service struct、Send、Cancel、ListMessages、UploadAttachment
+  pipeline.go     ← Agent 执行管道：processTask、buildEinoMessages、autoTitle 等
+  interceptor.go  ← Tool call 拦截：toolInterceptor、Summarizable、wrapTools、extractFallbackSummary
+  util.go         ← 杂项：newMsgID、newToolCallID、randHex、imageToInputPart 等
+```
 
 ---
 
@@ -370,11 +380,44 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
 
 **构建要求**：必须以 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"` 编译 go-sqlite3，否则启动时 Migrate 报错。
 
-### 5.4 消息加载策略
+### 5.4 消息存储策略：turn 结束后批量写入
+
+**不**在流式过程中写 DB。turn 完成后一次性写入，保证时序正确：
+
+```
+t=0  user message（Send() 时立即存）
+t=1  role=assistant, ToolCalls=[{list_dir}]   ← buffer[0]，toolInterceptor before
+t=2  role=tool, ToolCallID=tc_xxx             ← buffer[1]，toolInterceptor after
+t=3  role=assistant, content="这是你的目录…"  ← finaliseMessage，turn 结束
+```
+
+`processTask` 结束时统一 flush：
+```go
+for _, m := range msgBuf { s.repo.Save(ctx, m) }      // tool 消息先写
+s.finaliseMessage(ctx, assistantMsg, finalContent, ...) // 最终回复后写
+```
+
+**注意**：`status=streaming` 的 assistant 占位符已被移除（Phase 3 重构），DB 里不再有中间态消息。前端流式展示依赖 SSE 事件，不依赖 DB 轮询。
+
+### 5.5 历史消息重建（toEinoMessage）
+
+`buildEinoMessages` 加载历史时，`role=assistant` 消息若 ToolCalls 非空，会重建为带 tool calls 的 schema.AssistantMessage，让 LLM 下一轮能看到完整 tool call 上下文：
+
+```go
+case chatdomain.RoleAssistant:
+    if m.ToolCalls != "" {
+        var toolCalls []schema.ToolCall
+        json.Unmarshal([]byte(m.ToolCalls), &toolCalls)
+        return schema.AssistantMessage(m.Content, toolCalls), nil
+    }
+    return schema.AssistantMessage(m.Content, nil), nil
+```
+
+### 5.6 消息加载策略
 
 每次 Send 时，从 DB 加载当前对话的全部历史消息，转成 `[]*schema.Message` 传给 Agent。
 
-**Phase 5 优化**：用 `MessageRewriter`（Eino AgentConfig 的可选项）做上下文压缩，超长对话只保留关键消息，避免 context 超限。当前 Phase 2 全量加载。
+**Phase 5 优化**：用 `MessageRewriter`（Eino AgentConfig 的可选项）做上下文压缩，超长对话只保留关键消息，避免 context 超限。当前全量加载（200 条上限）。
 
 ---
 

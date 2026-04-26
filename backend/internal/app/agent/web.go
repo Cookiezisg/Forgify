@@ -64,6 +64,19 @@ func (t *FetchURLTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// CoreInfo returns a human-readable summary of the tool invocation,
+// used as the summary field in the SSE chat.tool_call event.
+//
+// CoreInfo 返回 tool 调用的人类可读摘要，
+// 用于 SSE chat.tool_call 事件的 summary 字段。
+func (t *FetchURLTool) CoreInfo(argsJSON string) string {
+	var args struct {
+		URL string `json:"url"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	return args.URL
+}
+
 func (t *FetchURLTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
 	var args struct {
 		URL string `json:"url"`

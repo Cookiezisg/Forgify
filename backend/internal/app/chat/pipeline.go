@@ -244,49 +244,11 @@ func (s *Service) runReactLoop(
 			return finalContent, stopReason, tokenUsage
 		}
 
-		// Intermediate response: has tool calls.
-		// Save the assistant message, then execute each tool.
-		// 中间响应（有 tool calls）：保存 assistant 消息，然后逐个执行 tool。
+		// Intermediate response: save + execute all tool calls.
+		// 中间响应：保存 assistant 消息，执行全部 tool calls。
 		s.saveIntermediateMessage(ctx, convID, uid, response)
-
-		for _, tc := range response.ToolCalls {
-			summary := s.toolSummary(tc.Function.Name, tc.Function.Arguments)
-			s.bridge.Publish(ctx, convID, events.ChatToolCall{
-				ConversationID: convID,
-				MessageID:      assistantMsgID,
-				ToolCallID:     tc.ID,
-				ToolName:       tc.Function.Name,
-				ToolInput:      tc.Function.Arguments,
-				Summary:        summary,
-			})
-
-			result, ok := s.executeTool(ctx, tc)
-			s.bridge.Publish(ctx, convID, events.ChatToolResult{
-				ConversationID: convID,
-				ToolCallID:     tc.ID,
-				Result:         result,
-				OK:             ok,
-			})
-
-			if err := s.repo.Save(ctx, &chatdomain.Message{
-				ID:             newMsgID(),
-				ConversationID: convID,
-				UserID:         uid,
-				Role:           chatdomain.RoleTool,
-				Content:        result,
-				ToolCallID:     tc.ID,
-				Status:         chatdomain.StatusCompleted,
-			}); err != nil {
-				s.log.Warn("save tool result message failed",
-					zap.String("tool", tc.Function.Name), zap.Error(err))
-			}
-
-			currentMessages = append(currentMessages, &schema.Message{
-				Role:       schema.Tool,
-				Content:    result,
-				ToolCallID: tc.ID,
-			})
-		}
+		toolMsgs := s.runToolCalls(ctx, response.ToolCalls, convID, assistantMsgID, uid)
+		currentMessages = append(currentMessages, toolMsgs...)
 	}
 
 	// Reached step limit without a final text response.
@@ -294,6 +256,59 @@ func (s *Service) runReactLoop(
 	stopReason = chatdomain.StopReasonMaxTokens
 	s.saveTerminalMessage(ctx, assistantMsgID, convID, uid, finalContent, stopReason)
 	return finalContent, stopReason, tokenUsage
+}
+
+// runToolCalls executes each tool call in tc, publishes SSE events, writes
+// tool-result messages to DB, and returns the tool messages for the next
+// LLM turn.
+//
+// runToolCalls 执行 tc 中的每个 tool call，推 SSE 事件，把 tool-result
+// 消息写入 DB，并返回供下一轮 LLM 使用的 tool 消息列表。
+func (s *Service) runToolCalls(
+	ctx context.Context,
+	toolCalls []schema.ToolCall,
+	convID, assistantMsgID, uid string,
+) []*schema.Message {
+	msgs := make([]*schema.Message, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		s.bridge.Publish(ctx, convID, events.ChatToolCall{
+			ConversationID: convID,
+			MessageID:      assistantMsgID,
+			ToolCallID:     tc.ID,
+			ToolName:       tc.Function.Name,
+			ToolInput:      tc.Function.Arguments,
+			Summary:        s.toolSummary(tc.Function.Name, tc.Function.Arguments),
+		})
+
+		result, ok := s.executeTool(ctx, tc)
+
+		s.bridge.Publish(ctx, convID, events.ChatToolResult{
+			ConversationID: convID,
+			ToolCallID:     tc.ID,
+			Result:         result,
+			OK:             ok,
+		})
+
+		if err := s.repo.Save(ctx, &chatdomain.Message{
+			ID:             newMsgID(),
+			ConversationID: convID,
+			UserID:         uid,
+			Role:           chatdomain.RoleTool,
+			Content:        result,
+			ToolCallID:     tc.ID,
+			Status:         chatdomain.StatusCompleted,
+		}); err != nil {
+			s.log.Warn("save tool result message failed",
+				zap.String("tool", tc.Function.Name), zap.Error(err))
+		}
+
+		msgs = append(msgs, &schema.Message{
+			Role:       schema.Tool,
+			Content:    result,
+			ToolCallID: tc.ID,
+		})
+	}
+	return msgs
 }
 
 // collectStream reads one LLM streaming response to completion.

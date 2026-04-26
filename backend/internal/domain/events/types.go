@@ -107,3 +107,106 @@ type ConversationTitleUpdated struct {
 // EventName returns "conversation.title_updated".
 // EventName 返回 "conversation.title_updated"。
 func (ConversationTitleUpdated) EventName() string { return "conversation.title_updated" }
+
+// ── Tool events (Phase 3) ─────────────────────────────────────────────────────
+
+// ToolCodeStreaming fires for every LLM token during code generation inside
+// create_tool or edit_tool. MessageID and ToolCallID bind the stream to the
+// specific conversation turn that triggered it, so the frontend can associate
+// the code panel update with the right message.
+// ToolID is empty during create_tool (the tool does not exist yet).
+//
+// ToolCodeStreaming 在 create_tool / edit_tool 内部 LLM 代码生成阶段
+// 逐 token 触发。MessageID 和 ToolCallID 把流绑定到触发它的对话轮次，
+// 前端据此将代码面板更新关联到正确的消息。
+// create_tool 期间 ToolID 为空（工具尚未创建）。
+type ToolCodeStreaming struct {
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`  // assistant message that triggered the tool call
+	ToolCallID     string `json:"toolCallId"` // LLM-assigned tool call id
+	ToolID         string `json:"toolId"`     // empty for create_tool; existing id for edit_tool
+	ActionType     string `json:"actionType"` // "create" | "edit"
+	Delta          string `json:"delta"`
+}
+
+// EventName returns "tool.code_streaming".
+// EventName 返回 "tool.code_streaming"。
+func (ToolCodeStreaming) EventName() string { return "tool.code_streaming" }
+
+// ToolCreated fires after create_tool successfully saves the new tool.
+//
+// ToolCreated 在 create_tool 成功保存新工具后触发。
+type ToolCreated struct {
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`
+	ToolCallID     string `json:"toolCallId"`
+	ToolID         string `json:"toolId"`
+	ToolName       string `json:"toolName"`
+}
+
+// EventName returns "tool.created".
+// EventName 返回 "tool.created"。
+func (ToolCreated) EventName() string { return "tool.created" }
+
+// ToolPendingCreated fires after edit_tool saves a pending change awaiting
+// user review.
+//
+// ToolPendingCreated 在 edit_tool 保存待用户审核的 pending 变更后触发。
+type ToolPendingCreated struct {
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`
+	ToolCallID     string `json:"toolCallId"`
+	ToolID         string `json:"toolId"`
+	PendingID      string `json:"pendingId"`   // ToolVersion id with status='pending'
+	Instruction    string `json:"instruction"` // the LLM instruction that produced this change
+}
+
+// EventName returns "tool.pending_created".
+// EventName 返回 "tool.pending_created"。
+func (ToolPendingCreated) EventName() string { return "tool.pending_created" }
+
+// ToolTestCaseGenerated fires once per test case during generate-test-cases.
+// Each event carries a complete test case (not individual tokens), so the
+// frontend can render it immediately as it arrives.
+//
+// ToolTestCaseGenerated 在 generate-test-cases 流程中每生成一条完整测试用例时触发。
+// 每个事件携带完整用例（非 token），前端收到即可直接渲染。
+type ToolTestCaseGenerated struct {
+	ToolID         string `json:"toolId"`
+	TestCaseID     string `json:"testCaseId"`
+	Name           string `json:"name"`
+	InputData      string `json:"inputData"`      // JSON object string
+	ExpectedOutput string `json:"expectedOutput"` // JSON string
+}
+
+// EventName returns "tool.test_case_generated".
+// EventName 返回 "tool.test_case_generated"。
+func (ToolTestCaseGenerated) EventName() string { return "tool.test_case_generated" }
+
+// ToolTestCasesDone fires when generate-test-cases has finished producing all
+// test cases and saved them to the database.
+//
+// ToolTestCasesDone 在 generate-test-cases 生成全部测试用例并写入数据库后触发。
+type ToolTestCasesDone struct {
+	ToolID string `json:"toolId"`
+	Count  int    `json:"count"` // number of test cases generated and saved
+}
+
+// EventName returns "tool.test_cases_done".
+// EventName 返回 "tool.test_cases_done"。
+func (ToolTestCasesDone) EventName() string { return "tool.test_cases_done" }
+
+// ToolTestCasesNotSupported fires when the LLM determines that the tool
+// cannot be reliably tested automatically (e.g. it depends on local file
+// paths, network calls, or randomness). No test cases are saved.
+//
+// ToolTestCasesNotSupported 在 LLM 判断工具无法可靠地自动生成测试用例时触发
+// （如依赖本地文件路径、网络请求、随机性等）。不保存任何测试用例。
+type ToolTestCasesNotSupported struct {
+	ToolID string `json:"toolId"`
+	Reason string `json:"reason"` // LLM explanation; shown directly to the user
+}
+
+// EventName returns "tool.test_cases_not_supported".
+// EventName 返回 "tool.test_cases_not_supported"。
+func (ToolTestCasesNotSupported) EventName() string { return "tool.test_cases_not_supported" }

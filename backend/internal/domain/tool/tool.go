@@ -192,10 +192,10 @@ func (ToolTestHistory) TableName() string { return "tool_test_history" }
 // ExecutionResult 是单次 sandbox Run 的执行结果。定义在 domain 层，
 // 使 infra/sandbox 可直接返回它而不必 import app/tool（否则循环依赖）。
 type ExecutionResult struct {
-	OK        bool
-	Output    any
-	ErrorMsg  string
-	ElapsedMs int64
+	OK        bool   `json:"ok"`
+	Output    any    `json:"output"`
+	ErrorMsg  string `json:"errorMsg"`
+	ElapsedMs int64  `json:"elapsedMs"`
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -297,10 +297,10 @@ type Repository interface {
 	GetTool(ctx context.Context, id string) (*Tool, error)
 
 	// GetToolsByIDs fetches multiple Tools by id slice, preserving order.
-	// Used by the semantic search path to hydrate vector search results.
+	// Used by SearchTool after the LLM returns ranked IDs.
 	//
 	// GetToolsByIDs 按 id 切片批量查询 Tool，保持顺序。
-	// 供语义搜索路径从向量结果中还原完整对象使用。
+	// 供 SearchTool 在 LLM 返回排序 ID 后取完整对象。
 	GetToolsByIDs(ctx context.Context, ids []string) ([]*Tool, error)
 
 	// ListTools returns a cursor-paginated page of live tools for the current user.
@@ -309,6 +309,13 @@ type Repository interface {
 	// ListTools 返回当前用户活跃工具的 cursor 分页结果。
 	// 返回 (rows, nextCursor, err)。
 	ListTools(ctx context.Context, filter ListFilter) ([]*Tool, string, error)
+
+	// ListAllTools returns all live tools for the current user without pagination.
+	// Used by SearchTool to build the full tool list for LLM ranking.
+	//
+	// ListAllTools 返回当前用户全部活跃工具，不分页。
+	// 供 SearchTool 构建发给 LLM 排序的完整工具列表。
+	ListAllTools(ctx context.Context) ([]*Tool, error)
 
 	// DeleteTool soft-deletes a tool by id, scoped to the current user.
 	//

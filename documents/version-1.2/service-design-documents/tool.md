@@ -25,7 +25,7 @@
 | pending 与 version 的关系 | **合并为一张表** `tool_versions`，用 `status` 区分 | pending 和 version 形状完全一样，都是完整工具快照，无需两张表 |
 | 版本快照内容 | **完整快照**：name + description + code + parameters + returnSchema + tags | 只存 code 的版本无法完整回滚，也无法看到历史状态 |
 | pending 触发条件 | **所有 LLM 发起的变更**（code + 元数据）统一走 pending | 用户直接操作（HTTP PATCH / revert）立即生效，不走 pending |
-| 工具搜索 | **chromem-go 语义搜索**，不用 FTS5 | 调用方是 LLM，语义搜索覆盖率远好于关键词；20-200 个工具无需大型向量库 |
+| 工具搜索 | **LLM 排序**：SearchTool 把全部工具名+描述发给 LLM，LLM 返回按相关度排好的 ID + score 列表 | 比向量搜索准确（LLM 完整理解语义）；工具数量少（20-200），一次 prompt 能全放进去；无需 embedding API 或本地向量库，任何 LLM provider 都能用 |
 | System Tool 位置 | `app/agent/forge.go`，组装留在 `app/chat` | 避免 app/chat 成为巨无霸；未来 web/workflow/knowledge 各加一个文件 |
 | resolveAttachments | **RunTool（System Tool）调用前完成**，不进 Service | tool Service 不感知 att_id 概念，保持纯粹 |
 | GenerateTestCases | Service 方法 + **callback（emit func）** 解耦 HTTP | Service 不导入 net/http；emit 函数由 Handler 注入 |
@@ -182,10 +182,10 @@ func (ToolTestHistory) TableName() string { return "tool_test_history" }
 
 ```go
 type ExecutionResult struct {
-    OK        bool
-    Output    any
-    ErrorMsg  string
-    ElapsedMs int64
+    OK        bool   `json:"ok"`
+    Output    any    `json:"output"`
+    ErrorMsg  string `json:"errorMsg"`
+    ElapsedMs int64  `json:"elapsedMs"`
 }
 ```
 
@@ -233,8 +233,9 @@ type Repository interface {
     // Tool CRUD
     SaveTool(ctx context.Context, t *Tool) error
     GetTool(ctx context.Context, id string) (*Tool, error)
-    GetToolsByIDs(ctx context.Context, ids []string) ([]*Tool, error) // 语义搜索后批量拉对象
+    GetToolsByIDs(ctx context.Context, ids []string) ([]*Tool, error) // LLM 排序后按 ID 批量拉完整对象
     ListTools(ctx context.Context, filter ListFilter) ([]*Tool, string, error)
+    ListAllTools(ctx context.Context) ([]*Tool, error) // 供 search_tools 把全量工具发给 LLM 排序
     DeleteTool(ctx context.Context, id string) error
 
     // Versions（含 pending）
@@ -282,27 +283,18 @@ type ListFilter struct {
 - `GetActivePending`：`WHERE tool_id=? AND status='pending' LIMIT 1`
 - `DeleteOldestAcceptedVersion`：硬删 `WHERE tool_id=? AND status='accepted' ORDER BY version ASC LIMIT 1`
 
-### 7.2 语义搜索（chromem-go）
+### 7.2 工具搜索（LLM 排序）
 
-- 库：`github.com/philippgille/chromem-go`，零外部依赖，本地持久化
-- 持久化路径：`{dataDir}/vectordb/tools`
-- 索引内容：`name + " " + description`（拼接后送 embedding API）
-- Embedding provider：复用用户已配置的 API Key（`apikey.KeyProvider`）
-- Collection 按 user_id 隔离
+搜索逻辑完全在 `SearchTool`（`app/agent/forge.go`）中实现，不在 Service 层，不依赖向量库。
 
-**生命周期**：
+**流程**：
+1. `toolSvc.ListAllTools(ctx)` → 拿全部工具（仅 name + description，轻量）
+2. 构建 prompt：列出所有工具 + query，要求 LLM 返回 `[{"id":"t_xxx","score":0.95},...]`
+3. LLM 非流式调用（等完整 JSON）→ 解析 ID + score 列表，取前 limit 条
+4. `repo.GetToolsByIDs(ids)` → 取完整 Tool 对象
+5. 按 score 排序后返回
 
-| 时机 | 操作 |
-|---|---|
-| Create / Import | vectorDB.Upsert |
-| Update（name 或 description 变更）| vectorDB.Upsert |
-| AcceptPending（name/description 在快照里）| vectorDB.Upsert |
-| Delete（软删）| vectorDB.Delete |
-
-**Search 流程**：
-1. `vectorDB.Search(userID, query, limit)` → `[]VectorHit`（含 ID + Score，已按 Score DESC 排序）
-2. 提取 IDs → `repo.GetToolsByIDs(ids)` → `[]*Tool`
-3. 拼装 `[]SearchResult`，保留每条 VectorHit.Score
+**为什么比向量搜索准确**：LLM 完整理解语义，能推理 "处理表格" → parse_csv；20-200 个工具一次 prompt 全放进去，不丢失信息；无需 embedding API，任何 provider 都支持。
 
 ---
 
@@ -312,25 +304,10 @@ type ListFilter struct {
 
 ```go
 type Service struct {
-    repo     tooldomain.Repository
-    vectorDB VectorDB
-    sandbox  Sandbox
-    llm      LLMClient // GenerateTestCases 使用
-    log      *zap.Logger
-}
-
-// VectorDB 是通用语义搜索接口，不绑定 tool domain。
-// 实现位于 infra/vectordb/chromem.go（chromem-go 封装）。
-type VectorDB interface {
-    Upsert(ctx context.Context, userID, id, text string) error  // 新增或更新向量
-    Delete(ctx context.Context, userID, id string) error
-    Search(ctx context.Context, userID, query string, limit int) ([]VectorHit, error)
-}
-
-// VectorHit 携带相似度分数，供 SearchResult 使用。
-type VectorHit struct {
-    ID    string
-    Score float32 // 余弦相似度 0~1
+    repo    tooldomain.Repository
+    sandbox Sandbox
+    llm     LLMClient // GenerateTestCases 使用
+    log     *zap.Logger
 }
 
 type Sandbox interface {
@@ -397,7 +374,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*tooldomain.Tool,
 // 2. repo.SaveTool（UNIQUE 冲突 → ErrDuplicateName）
 // 3. repo.SaveVersion(status='accepted', version=1, message="initial")
 // 4. tool.VersionCount = 1
-// 5. vectorDB.Upsert
 
 func (s *Service) Get(ctx context.Context, id string) (*tooldomain.Tool, error)
 
@@ -417,15 +393,8 @@ type TestSummary struct {
 
 func (s *Service) List(ctx context.Context, filter tooldomain.ListFilter) ([]*tooldomain.Tool, string, error)
 
-func (s *Service) Search(ctx context.Context, query string, limit int) ([]*SearchResult, error)
-// 1. vectorDB.Search → []VectorHit（含 ID + Score，已按 Score DESC 排序）
-// 2. repo.GetToolsByIDs(ids) → []*Tool
-// 3. 拼装 SearchResult，保留 Score
-
-type SearchResult struct {
-    Tool       *tooldomain.Tool
-    Similarity float32 // 直接来自 VectorHit.Score
-}
+func (s *Service) ListAll(ctx context.Context) ([]*tooldomain.Tool, error)
+// 供 SearchTool 使用：返回当前用户全部活跃工具（无分页），仅取 name+description 即可
 
 func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (*tooldomain.Tool, error)
 // UpdateInput: Name? / Description? / Tags? / Code?（用户直接操作，立即生效）
@@ -435,10 +404,9 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (*toold
 // 3. 更新 Tool 主表所有变更字段
 // 4. tool.VersionCount++，repo.SaveVersion(status='accepted', version=VersionCount, message="manual edit")
 // 5. 若 accepted count > 50 → DeleteOldestAcceptedVersion
-// 6. 若 name 或 description 变更 → vectorDB.Upsert
 
 func (s *Service) Delete(ctx context.Context, id string) error
-// repo.DeleteTool（软删）→ vectorDB.Delete
+// repo.DeleteTool（软删）
 ```
 
 ### 8.4 版本管理
@@ -455,7 +423,6 @@ func (s *Service) RevertToVersion(ctx context.Context, toolID string, version in
 // 3. 更新 Tool 主表为快照内容
 // 4. tool.VersionCount++，SaveVersion(status='accepted', version=VersionCount, message="reverted to v{N}")
 // 5. 若 accepted count > 50 → DeleteOldestAcceptedVersion
-// 6. vectorDB.Upsert（name/description 可能变了）
 ```
 
 ### 8.5 Pending 管理
@@ -464,17 +431,16 @@ func (s *Service) RevertToVersion(ctx context.Context, toolID string, version in
 func (s *Service) GetActivePending(ctx context.Context, toolID string) (*tooldomain.ToolVersion, error)
 // repo.GetActivePending → ErrPendingNotFound if nil
 
-func (s *Service) AcceptPending(ctx context.Context, pendingID string) (*tooldomain.Tool, error)
-// 1. 查 ToolVersion（id=pendingID, status='pending'）→ ErrPendingNotFound
+func (s *Service) AcceptPending(ctx context.Context, toolID string) (*tooldomain.Tool, error)
+// 1. repo.GetActivePending(toolID) → ErrPendingNotFound if none
 // 2. 分配 version = tool.VersionCount + 1
 // 3. 更新 Tool 主表为 pending 快照（name/description/code/parameters/returnSchema/tags）
 // 4. tool.VersionCount = version
-// 5. repo.UpdateVersionStatus(pendingID, 'accepted', &version)
+// 5. repo.UpdateVersionStatus(pv.ID, 'accepted', &version)
 // 6. 若 accepted count > 50 → DeleteOldestAcceptedVersion
-// 7. vectorDB.Upsert（name/description 可能变了）
 
-func (s *Service) RejectPending(ctx context.Context, pendingID string) error
-// repo.UpdateVersionStatus(pendingID, 'rejected', nil)
+func (s *Service) RejectPending(ctx context.Context, toolID string) error
+// repo.GetActivePending(toolID) → UpdateVersionStatus(pv.ID, 'rejected', nil)
 ```
 
 ### 8.6 执行
@@ -591,14 +557,21 @@ func ForgeTools(
   id, name, description,
   parameters: [{name, type, required, description, default}],
   returnSchema: {type, description},
-  similarity: float   // 0~1，越高越相关；< 0.5 基本不相关
+  similarity: float   // LLM 给出的相关度评分 0~1
 }]
-实现：toolSvc.Search(query, limit)
+
+实现（SearchTool 内部）：
+  1. toolSvc.ListAll(ctx) → 全部工具（name + description）
+  2. llm.Generate(ctx, rankPrompt) → "[{\"id\":\"t_xxx\",\"score\":0.95},...]"
+     rankPrompt：列出所有工具 + query，要求返回最相关的 limit 个 ID+score
+  3. 解析 JSON → 按 score DESC 取前 limit 条
+  4. repo.GetToolsByIDs(ids) → 完整 Tool 对象
+  5. 组装返回，score 填入 similarity 字段
 
 LLM 使用指引：
-- similarity >= 0.85：高度相关，可直接 get_tool 确认后使用
-- similarity 0.5~0.85：可能相关，建议 get_tool 读代码判断
-- similarity < 0.5 或返回空：工具库无合适工具，考虑 create_tool
+- similarity >= 0.8：高度相关，可直接 get_tool 确认后使用
+- similarity 0.5~0.8：可能相关，建议 get_tool 读代码判断
+- 返回空或全部低分：工具库无合适工具，考虑 create_tool
 ```
 
 ### get_tool
@@ -725,8 +698,13 @@ LLM 使用指引：
 
 ```go
 // ToolCodeStreaming 在 create_tool / edit_tool 的 LLM 代码生成阶段逐 token 推送。
+// ToolCodeStreaming 在 create_tool / edit_tool 的 LLM 代码生成阶段逐 token 推送。
+// MessageID + ToolCallID 把流绑定到触发它的对话轮次，前端据此关联代码面板更新。
+// create_tool 期间 ToolID 为空（工具尚未创建）。
 type ToolCodeStreaming struct {
     ConversationID string `json:"conversationId"`
+    MessageID      string `json:"messageId"`  // 触发此 tool call 的 assistant 消息 id
+    ToolCallID     string `json:"toolCallId"` // LLM 分配的 tool call id
     ToolID         string `json:"toolId"`     // edit 时为现有 ID；create 时为空
     ActionType     string `json:"actionType"` // "create" | "edit"
     Delta          string `json:"delta"`
@@ -736,16 +714,20 @@ func (ToolCodeStreaming) EventName() string { return "tool.code_streaming" }
 // ToolCreated 在 create_tool 成功保存工具后推送。
 type ToolCreated struct {
     ConversationID string `json:"conversationId"`
+    MessageID      string `json:"messageId"`
+    ToolCallID     string `json:"toolCallId"`
     ToolID         string `json:"toolId"`
     ToolName       string `json:"toolName"`
 }
 func (ToolCreated) EventName() string { return "tool.created" }
 
-// ToolPendingCreated 在 edit_tool 创建 pending 后推送。
+// ToolPendingCreated 在 edit_tool 保存 pending 变更后推送。
 type ToolPendingCreated struct {
     ConversationID string `json:"conversationId"`
+    MessageID      string `json:"messageId"`
+    ToolCallID     string `json:"toolCallId"`
     ToolID         string `json:"toolId"`
-    PendingID      string `json:"pendingId"`
+    PendingID      string `json:"pendingId"`  // status='pending' 的 ToolVersion id
     Instruction    string `json:"instruction"`
 }
 func (ToolPendingCreated) EventName() string { return "tool.pending_created" }
@@ -923,10 +905,9 @@ def parse_csv(csv_text: str, delimiter: str = ',') -> list:
 ## 17. 实现清单
 
 - [x] 详设计完成（本文档）
-- [ ] `domain/tool/tool.go` — 5 个 entity + `ExecutionResult` + 常量 + 9 个 sentinel + Repository 接口 + ListFilter
+- [x] `domain/tool/tool.go` — 5 个 entity + `ExecutionResult` + 常量 + 9 个 sentinel + Repository 接口 + ListFilter
 - [ ] `domain/events/types.go` — 追加 6 个 SSE 事件
 - [ ] `infra/sandbox/python.go` — PythonSandbox + 测试
-- [ ] `infra/vectordb/chromem.go` — chromem-go VectorDB 实现（通用，不绑定 tool domain）
 - [ ] `infra/db/schema_extras.go` — partial UNIQUE（tools 表）
 - [ ] `infra/store/tool/tool.go` — Repository 实现 + 集成测试
 - [ ] `app/tool/ast.go` — parseToolCode（Python subprocess）

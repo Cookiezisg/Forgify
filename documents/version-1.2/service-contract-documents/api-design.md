@@ -126,9 +126,36 @@ type Error = {
 
 ### Phase 3：工具锻造能力
 
-#### attachment ⬜
-#### tool ⬜
-#### chat（升级带 tool calling）⬜
+#### tool ✅
+详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §11–12。
+
+| Method | Path | 用途 |
+|---|---|---|
+| POST | `/api/v1/tools` | 创建工具（直接传 code）|
+| GET | `/api/v1/tools` | 列表（分页）|
+| GET | `/api/v1/tools/{id}` | 详情 |
+| PATCH | `/api/v1/tools/{id}` | 更新（直接生效）|
+| DELETE | `/api/v1/tools/{id}` | 软删 |
+| POST | `/api/v1/tools/{id}:run` | 执行工具 |
+| POST | `/api/v1/tools/{id}:export` | 导出 JSON |
+| POST | `/api/v1/tools:import` | 导入 JSON |
+| GET | `/api/v1/tools/{id}/versions` | 版本列表 |
+| GET | `/api/v1/tools/{id}/versions/{version}` | 单版本详情 |
+| POST | `/api/v1/tools/{id}:revert` | 回滚版本 |
+| GET | `/api/v1/tools/{id}/pending` | 当前 pending |
+| POST | `/api/v1/tools/{id}/pending:accept` | 接受 pending |
+| POST | `/api/v1/tools/{id}/pending:reject` | 拒绝 pending |
+| GET | `/api/v1/tools/{id}/test-cases` | 测试用例列表 |
+| POST | `/api/v1/tools/{id}/test-cases` | 创建测试用例 |
+| DELETE | `/api/v1/tools/{id}/test-cases/{tcId}` | 删除测试用例 |
+| POST | `/api/v1/tools/{id}/test-cases/{tcId}:run` | 运行单个测试 |
+| POST | `/api/v1/tools/{id}:test` | 运行全部测试 |
+| POST | `/api/v1/tools/{id}:generate-test-cases` | LLM 生成测试用例（SSE）|
+| GET | `/api/v1/tools/{id}/run-history` | 运行历史 |
+| GET | `/api/v1/tools/{id}/test-history` | 测试历史（?batchId= 过滤）|
+
+#### chat（Phase 3 升级：tool calling 激活）✅
+Phase 3 完成后 chat 已激活 System Tools（search/get/create/edit/run）。SetTools 注入，ConversationID 通过 context 传入 forge.go。无新端点，见 Phase 2 chat 端点。
 
 ---
 

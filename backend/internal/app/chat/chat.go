@@ -40,6 +40,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 
+	agentpkg "github.com/sunweilin/forgify/backend/internal/app/agent"
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
 	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
@@ -128,6 +129,15 @@ func NewService(
 		dataDir:      dataDir,
 		log:          log,
 	}
+}
+
+// SetTools injects system tools into the ReAct Agent. Called by main.go after
+// all Phase 3+ services are wired. Safe to call before any conversation starts.
+//
+// SetTools 将 system tools 注入 ReAct Agent。在所有 Phase 3+ service 装配后
+// 由 main.go 调用。在任何对话开始前调用是安全的。
+func (s *Service) SetTools(tools []tool.BaseTool) {
+	s.tools = tools
 }
 
 // SendInput is the payload for Service.Send.
@@ -347,12 +357,16 @@ func (s *Service) processTask(conversationID string, q *convQueue, task queuedTa
 		q.mu.Unlock()
 	}()
 
+	// Inject conversationID so system tools can publish correctly-scoped SSE events.
+	// 注入 conversationID，让 system tool 推送正确作用域的 SSE 事件。
+	agentCtx = agentpkg.WithConversationID(agentCtx, conversationID)
+
 	modifier := react.MessageModifier(func(_ context.Context, msgs []*schema.Message) []*schema.Message {
 		return append([]*schema.Message{schema.SystemMessage(systemPrompt)}, msgs...)
 	})
 	agent, err := react.NewAgent(agentCtx, &react.AgentConfig{
 		ToolCallingModel:      built.Model,
-		ToolsConfig:           compose.ToolsNodeConfig{},
+		ToolsConfig:           compose.ToolsNodeConfig{Tools: s.tools},
 		MessageModifier:       modifier,
 		MaxStep:               20,
 		StreamToolCallChecker: built.Checker,

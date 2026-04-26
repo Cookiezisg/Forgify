@@ -22,23 +22,29 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/cloudwego/eino/schema"
+	agentpkg "github.com/sunweilin/forgify/backend/internal/app/agent"
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
 	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
 	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
+	toolapp "github.com/sunweilin/forgify/backend/internal/app/tool"
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
 	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
+	tooldomain "github.com/sunweilin/forgify/backend/internal/domain/tool"
 	infracrypto "github.com/sunweilin/forgify/backend/internal/infra/crypto"
 	"github.com/sunweilin/forgify/backend/internal/infra/db"
 	einoinfra "github.com/sunweilin/forgify/backend/internal/infra/eino"
 	"github.com/sunweilin/forgify/backend/internal/infra/events/memory"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
+	"github.com/sunweilin/forgify/backend/internal/infra/sandbox"
 	apikeystore "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
 	chatstore "github.com/sunweilin/forgify/backend/internal/infra/store/chat"
 	convstore "github.com/sunweilin/forgify/backend/internal/infra/store/conversation"
 	modelstore "github.com/sunweilin/forgify/backend/internal/infra/store/model"
+	toolstore "github.com/sunweilin/forgify/backend/internal/infra/store/tool"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/router"
 )
 
@@ -80,14 +86,20 @@ func main() {
 		}
 	}()
 
-	// Phase 2 domain tables. New domains append their GORM models here.
-	// Phase 2 domain 表。新 domain 把 GORM model 追加到这里。
+	// Domain tables — append new GORM models here when adding a Phase.
+	// Domain 表——新增 Phase 时把 GORM model 追加到这里。
 	if err := db.Migrate(gdb,
 		&apikeydomain.APIKey{},
 		&modeldomain.ModelConfig{},
 		&convdomain.Conversation{},
 		&chatdomain.Message{},
 		&chatdomain.Attachment{},
+		// Phase 3: tool domain
+		&tooldomain.Tool{},
+		&tooldomain.ToolVersion{},
+		&tooldomain.ToolTestCase{},
+		&tooldomain.ToolRunHistory{},
+		&tooldomain.ToolTestHistory{},
 	); err != nil {
 		log.Error("migrate db", zap.Error(err))
 		os.Exit(1)
@@ -121,17 +133,48 @@ func main() {
 	modelService := modelapp.NewService(modelstore.New(gdb), log)
 	convService := convapp.NewService(convstore.New(gdb), log)
 
+	// Phase 3: tool service.
+	// toolLLMClient adapts the existing model factory to the thin LLMClient
+	// interface used by Service.GenerateTestCases (non-streaming JSON calls).
+	//
+	// toolLLMClient 把已有 model factory 适配成 toolapp.LLMClient 接口
+	// （供 GenerateTestCases 使用的非流式 JSON 调用）。
+	einoFactory := einoinfra.NewDefaultFactory()
+	toolLLM := &toolLLMClientAdapter{
+		picker:  modelService,
+		keys:    apikeyService,
+		factory: einoFactory,
+	}
+	toolService := toolapp.NewService(
+		toolstore.New(gdb),
+		sandbox.New("python3"),
+		toolLLM,
+		log,
+	)
+
 	eventsBridge := memory.NewBridge(log)
 	chatService := chatapp.NewService(
 		chatstore.New(gdb),
 		convstore.New(gdb),
 		modelService,
 		apikeyService,
-		einoinfra.NewDefaultFactory(),
+		einoFactory,
 		eventsBridge,
 		*dataDir,
 		log,
 	)
+
+	// Inject Phase 3 system tools into the ReAct Agent.
+	// Phase 3 system tools 注入 ReAct Agent。
+	forgeTools := agentpkg.ForgeTools(
+		toolService,
+		chatstore.New(gdb),
+		modelService,
+		apikeyService,
+		einoFactory,
+		eventsBridge,
+	)
+	chatService.SetTools(forgeTools)
 
 	// Listen first so we know the actual port before building router.Deps.
 	// 先监听，才能在构建 router.Deps 前知道实际端口。
@@ -151,6 +194,7 @@ func main() {
 		APIKeyService:       apikeyService,
 		ModelService:        modelService,
 		ConversationService: convService,
+		ToolService:         toolService,
 		ChatService:         chatService,
 		EventsBridge:        eventsBridge,
 		Dev:                 *dev,
@@ -190,4 +234,40 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("shutdown", zap.Error(err))
 	}
+}
+
+// toolLLMClientAdapter satisfies toolapp.LLMClient using the existing model
+// factory + key provider stack. Used only for non-streaming JSON calls
+// (GenerateTestCases). Streaming calls live in app/agent/forge.go.
+//
+// toolLLMClientAdapter 用已有 model factory + key provider 栈满足
+// toolapp.LLMClient 接口。仅用于非流式 JSON 调用（GenerateTestCases）。
+// 流式调用在 app/agent/forge.go。
+type toolLLMClientAdapter struct {
+	picker  modeldomain.ModelPicker
+	keys    apikeydomain.KeyProvider
+	factory einoinfra.ChatModelFactory
+}
+
+func (c *toolLLMClientAdapter) Generate(ctx context.Context, prompt string) (string, error) {
+	provider, modelID, err := c.picker.PickForChat(ctx)
+	if err != nil {
+		return "", fmt.Errorf("toolLLMClient: pick model: %w", err)
+	}
+	creds, err := c.keys.ResolveCredentials(ctx, provider)
+	if err != nil {
+		return "", fmt.Errorf("toolLLMClient: resolve credentials: %w", err)
+	}
+	built, err := c.factory.Build(ctx, einoinfra.ModelConfig{
+		Provider: provider, ModelID: modelID,
+		Key: creds.Key, BaseURL: creds.BaseURL,
+	})
+	if err != nil {
+		return "", fmt.Errorf("toolLLMClient: build model: %w", err)
+	}
+	msg, err := built.Model.Generate(ctx, []*schema.Message{schema.UserMessage(prompt)})
+	if err != nil {
+		return "", fmt.Errorf("toolLLMClient: generate: %w", err)
+	}
+	return msg.Content, nil
 }

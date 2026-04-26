@@ -70,28 +70,28 @@ chat domain 所有；主键 `att_<16hex>`；字段：`user_id` / `file_name` / `
 
 ### Phase 3
 
-#### `tools` 🔄
+#### `tools` ✅
 详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.1。
 主键 `t_<16hex>`；软删（`deleted_at`）；`user_id` 索引；partial UNIQUE `UNIQUE(user_id, name) WHERE deleted_at IS NULL`（在 `schema_extras.go`）。
 字段：`name` / `description` / `code`（当前活跃代码）/ `parameters`（JSON 数组）/ `return_schema`（JSON 对象）/ `tags`（JSON 数组）/ `version_count`（最大已接受版本号，0=未保存）。
-向量索引（name+description）由 chromem-go 管理，路径 `{dataDir}/vectordb/tools`，不经 SQLite。
+工具搜索通过 LLM 排序实现（SearchTool 把全量工具发给 LLM），无独立向量索引。
 
-#### `tool_versions` 🔄
+#### `tool_versions` ✅
 详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.2。
 主键 `tv_<16hex>`；**兼作 pending 变更存储**：`status` 字段区分 `pending`/`accepted`/`rejected`，pending/rejected 时 `version` 为 NULL。
 完整快照字段：`name` / `description` / `code` / `parameters` / `return_schema` / `tags` / `message`（LLM 指令 | "manual edit" | "reverted to v{N}" | "initial"）。
 accepted 版本上限 50 条/工具，超限硬删最旧。
 
-#### `tool_test_cases` 🔄
+#### `tool_test_cases` ✅
 详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.3。
 主键 `tc_<16hex>`；`tool_id` 索引。字段：`name` / `input_data`（JSON）/ `expected_output`（JSON，空=不断言）。
 
-#### `tool_run_history` 🔄
+#### `tool_run_history` ✅
 详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.4。
 主键 `trh_<16hex>`；`tool_id` 索引；无软删。每次 `:run` 写一条，保留最近 100 条/工具。
 字段：`tool_version`（执行时版本号）/ `input` / `output` / `ok` / `error_msg` / `elapsed_ms`。
 
-#### `tool_test_history` 🔄
+#### `tool_test_history` ✅
 详见 [`../service-design-documents/tool.md`](../service-design-documents/tool.md) §3.5。
 主键 `tth_<16hex>`；`tool_id` + `test_case_id` + `batch_id`（索引）；无软删。每次测试用例执行写一条，保留最近 200 条/工具。
 字段：`tool_version` / `test_case_id` / `batch_id`（批跑时共享，单跑为空）/ `input` / `output` / `ok` / `pass`（*bool，nil=无断言）/ `error_msg` / `elapsed_ms`。
@@ -123,15 +123,18 @@ accepted 版本上限 50 条/工具，超限硬删最旧。
 
 > 每完成一个 Phase 更新一次。
 
-**当前（Phase 2 完成）**：
+**当前（Phase 3 完成）**：
 ```
-api_keys        model_configs     conversations
-   │                 │                  │
-   │  (user_id)      │  (user_id)       │  (user_id)
-   │                 │                  │
-   └──────────────── local-user ────────┘
-                                        │ conversation_id (索引)
-                                    messages
-                                        │ att_id (attachment_ids JSON)
-                               chat_attachments
+api_keys    model_configs   conversations
+    │             │               │
+    └─────────────┴───── local-user ──────┘
+                                   │ conversation_id
+                               messages
+                                   │ att_id (JSON)
+                          chat_attachments
+
+tools ──────── tool_versions (status: pending/accepted/rejected)
+  │ ─────────  tool_test_cases
+  │ ─────────  tool_run_history
+  └ ─────────  tool_test_history (batch_id 串联批跑)
 ```

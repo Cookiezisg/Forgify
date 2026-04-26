@@ -59,10 +59,12 @@
 
 | 事件名 | 用途 | 过滤 key | 状态 |
 |---|---|---|---|
-| `tool.code_detected` | AI 回复中检测到代码块 | `conversationId` | ⬜ |
-| `tool.code_updated` | AI 改了已绑定的工具代码 | `conversationId` | ⬜ |
-| `tool.run_started` | 工具开始运行 | `conversationId` | ⬜ |
-| `tool.run_completed` | 工具运行完成 | `conversationId` | ⬜ |
+| `tool.code_streaming` | create_tool / edit_tool 代码生成逐 token（`messageId` + `toolCallId` + `toolId` + `actionType` + `delta`）| `conversationId` | ✅ |
+| `tool.created` | create_tool 成功保存新工具（`messageId` + `toolCallId` + `toolId` + `toolName`）| `conversationId` | ✅ |
+| `tool.pending_created` | edit_tool 保存 pending 变更（`messageId` + `toolCallId` + `toolId` + `pendingId` + `instruction`）| `conversationId` | ✅ |
+| `tool.test_case_generated` | generate-test-cases 生成一条完整测试用例（`toolId` + `testCaseId` + `name` + `inputData` + `expectedOutput`）| `toolId` | ✅ |
+| `tool.test_cases_done` | generate-test-cases 全部完成（`toolId` + `count`）| `toolId` | ✅ |
+| `tool.test_cases_not_supported` | LLM 判断工具不可自动测试（`toolId` + `reason`）| `toolId` | ✅ |
 
 ---
 

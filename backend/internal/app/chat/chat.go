@@ -14,10 +14,9 @@
 //
 // Files:
 //
-//	chat.go        — public API
-//	pipeline.go    — agent execution loop
-//	interceptor.go — tool call interception
-//	util.go        — shared helpers
+//	chat.go     — public API
+//	pipeline.go — ReAct loop: stream, tools, SSE, DB writes
+//	util.go     — shared helpers
 package chat
 
 import (

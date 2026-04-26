@@ -74,7 +74,7 @@ func (t *FetchURLTool) CoreInfo(argsJSON string) string {
 		URL string `json:"url"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.URL
+	return "Fetching " + args.URL
 }
 
 func (t *FetchURLTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {

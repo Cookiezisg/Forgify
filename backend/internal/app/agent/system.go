@@ -63,7 +63,7 @@ func (t *ReadFileTool) CoreInfo(argsJSON string) string {
 		Path string `json:"path"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.Path
+	return "Reading " + args.Path
 }
 
 func (t *ReadFileTool) InvokableRun(_ context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -115,7 +115,7 @@ func (t *WriteFileTool) CoreInfo(argsJSON string) string {
 		Path string `json:"path"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.Path
+	return "Writing to " + args.Path
 }
 
 func (t *WriteFileTool) InvokableRun(_ context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -163,7 +163,7 @@ func (t *ListDirTool) CoreInfo(argsJSON string) string {
 		Path string `json:"path"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.Path
+	return "Listing " + args.Path
 }
 
 func (t *ListDirTool) InvokableRun(_ context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -289,7 +289,7 @@ func (t *RunPythonTool) CoreInfo(argsJSON string) string {
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	first := strings.SplitN(strings.TrimSpace(args.Code), "\n", 2)[0]
-	return strings.TrimSpace(first)
+	return "Running Python: " + strings.TrimSpace(first)
 }
 
 func (t *RunPythonTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {

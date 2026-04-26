@@ -46,6 +46,7 @@
 
 | 事件名 | 用途 | 过滤 key | 状态 |
 |---|---|---|---|
+| `chat.reasoning_token` | 推理模型 thinking 内容增量（`messageId` + `delta`），仅 DeepSeek-R1 等推理型模型产生 | `conversationId` | ✅ |
 | `chat.token` | 流式 token 增量（`messageId` + `delta`）| `conversationId` | ✅ |
 | `chat.tool_call` | Agent 调用 tool（`toolCallId` + `toolName` + `toolInput` + `summary`）| `conversationId` | ✅ |
 | `chat.tool_result` | Tool 执行完成（`toolCallId` + `result` + `ok`）| `conversationId` | ✅ |

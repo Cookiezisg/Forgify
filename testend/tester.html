@@ -54,35 +54,67 @@
             <template x-for="m in messages" :key="m.id">
               <div class="msg" :class="m.role">
                 <span class="msg-role" x-text="m.role"></span>
-                <template x-if="m.steps && m.steps.length">
-                  <div class="tool-steps">
-                    <template x-for="s in m.steps" :key="s.toolCallId">
-                      <details class="tool-step-card" :open="s.result === null">
-                        <summary class="tool-step-summary">
-                          <span class="tool-step-icon" x-text="s.result === null ? '⚙' : (s.ok ? '✓' : '✗')"></span>
-                          <span class="tool-step-name" x-text="s.toolName"></span>
-                          <span class="tool-step-status"
-                                :class="s.result === null ? 'running' : (s.ok ? 'ok' : 'err')"
-                                x-text="s.result === null ? 'running…' : (s.ok ? 'ok' : 'error')"></span>
-                        </summary>
-                        <div class="tool-step-body">
-                          <div class="tool-step-section">in</div>
-                          <pre class="tool-step-pre" x-text="tryFmt(s.input)"></pre>
-                          <template x-if="s.result !== null">
-                            <div>
-                              <div class="tool-step-section">out</div>
-                              <pre class="tool-step-pre" x-text="tryFmt(s.result)"></pre>
-                            </div>
-                          </template>
-                        </div>
-                      </details>
+
+                <!-- User messages: plain bubble -->
+                <template x-if="m.role === 'user'">
+                  <div class="msg-bubble" x-text="m.content"></div>
+                </template>
+
+                <!-- Assistant messages: ordered items[] -->
+                <template x-if="m.role === 'assistant'">
+                  <div style="display:contents">
+                    <template x-if="m.items && m.items.length">
+                      <div style="display:flex;flex-direction:column;gap:4px">
+                        <template x-for="(item, idx) in m.items" :key="idx">
+                          <div>
+                            <!-- Thinking block -->
+                            <template x-if="item.type === 'thinking'">
+                              <details class="thinking-block">
+                                <summary class="thinking-summary"
+                                         x-text="item.done ? 'Thought' : 'Thinking...'"></summary>
+                                <pre class="thinking-content" x-text="item.content"></pre>
+                              </details>
+                            </template>
+                            <!-- Text segment -->
+                            <template x-if="item.type === 'text' && item.content">
+                              <div class="msg-bubble" x-text="item.content"></div>
+                            </template>
+                            <!-- Tool step -->
+                            <template x-if="item.type === 'tool'">
+                              <details class="tool-step-card" :open="item.result === null">
+                                <summary class="tool-step-summary">
+                                  <span class="tool-step-icon"
+                                        x-text="item.result === null ? '⚙' : (item.ok ? '✓' : '✗')"></span>
+                                  <span class="tool-step-name" x-text="item.toolName"></span>
+                                  <span class="tool-step-status"
+                                        :class="item.result === null ? 'running' : (item.ok ? 'ok' : 'err')"
+                                        x-text="item.result === null ? 'running…' : (item.ok ? 'ok' : 'error')"></span>
+                                </summary>
+                                <div class="tool-step-body">
+                                  <div class="tool-step-section">in</div>
+                                  <pre class="tool-step-pre" x-text="tryFmt(item.input)"></pre>
+                                  <template x-if="item.result !== null">
+                                    <div>
+                                      <div class="tool-step-section">out</div>
+                                      <pre class="tool-step-pre" x-text="tryFmt(item.result)"></pre>
+                                    </div>
+                                  </template>
+                                </div>
+                              </details>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
                     </template>
+                    <!-- Fallback while items list is empty (very start of streaming) -->
+                    <template x-if="!m.items || !m.items.length">
+                      <div class="msg-bubble" x-text="m.status === 'streaming' ? '…' : ''"></div>
+                    </template>
+                    <span class="msg-status" :class="m.status"
+                          x-show="m.status !== 'completed'"
+                          x-text="m.status !== 'completed' ? m.status : ''"></span>
                   </div>
                 </template>
-                <div class="msg-bubble" x-text="m.content || (m.status==='streaming' ? '…' : '')"></div>
-                <span class="msg-status" :class="m.status"
-                      x-show="m.status !== 'completed'"
-                      x-text="m.status"></span>
               </div>
             </template>
           </div>
@@ -212,8 +244,12 @@
       <!-- SSE Tab -->
       <div class="tab-content" x-show="activeRightTab==='sse'" x-data="sseTab()">
         <div class="panel-toolbar">
-          <span style="font-size:11px;color:var(--text-mute)"
-                x-text="conversationId ? 'conv: '+conversationId.slice(0,12)+'…' : 'No conversation'"></span>
+          <!-- Source selector (left) -->
+          <div style="display:flex;gap:2px">
+            <button class="sse-view-btn" :class="{active: source==='conversation'}" @click="setSource('conversation')">conversation</button>
+            <button class="sse-view-btn" :class="{active: source==='forge'}"        @click="setSource('forge')">forge</button>
+          </div>
+          <!-- View toggle (right) -->
           <div style="display:flex;gap:2px;margin-left:auto">
             <button class="sse-view-btn" :class="{active: view==='stream'}" @click="view='stream'">Stream</button>
             <button class="sse-view-btn" :class="{active: view==='raw'}"    @click="view='raw'">Raw</button>
@@ -223,30 +259,72 @@
 
         <!-- Stream view -->
         <div class="event-log" x-show="view==='stream'">
-          <template x-for="(turn, i) in turns" :key="i">
-            <div class="sse-turn">
-              <div class="sse-turn-header" x-text="'msg ' + shortId(turn.messageId)"></div>
-              <template x-for="tc in turn.toolCalls" :key="tc.toolCallId">
-                <div class="sse-tool-row">
-                  <span class="sse-tool-icon" x-text="tc.result === null ? '⚙' : (tc.ok ? '✓' : '✗')"></span>
-                  <span class="sse-tool-name" x-text="tc.toolName"></span>
-                  <details style="flex:1;min-width:0">
-                    <summary style="cursor:pointer;color:var(--text-mute);font-size:10px">input / output</summary>
-                    <pre class="sse-pre" x-text="tryFmt(tc.input)"></pre>
-                    <pre class="sse-pre" x-show="tc.result !== null" x-text="tryFmt(tc.result)"></pre>
-                  </details>
+
+          <!-- Conversation stream -->
+          <template x-if="source === 'conversation'">
+            <div>
+              <template x-for="(turn, i) in turns" :key="i">
+                <div class="sse-turn">
+                  <div class="sse-turn-header" x-text="'msg ' + shortId(turn.messageId)"></div>
+                  <template x-for="(item, j) in turn.items" :key="j">
+                    <div>
+                      <template x-if="item.type === 'thinking'">
+                        <details class="sse-thinking-block" :open="!item.collapsed">
+                          <summary class="sse-thinking-summary"
+                                   @click="item.collapsed = !item.collapsed"
+                                   x-text="item.done ? 'Thought' : 'Thinking...'"></summary>
+                          <pre class="sse-pre" x-text="item.content"></pre>
+                        </details>
+                      </template>
+                      <template x-if="item.type === 'text' && item.content">
+                        <pre class="sse-text" x-text="item.content"></pre>
+                      </template>
+                      <template x-if="item.type === 'tool'">
+                        <div class="sse-tool-row">
+                          <span class="sse-tool-icon"
+                                x-text="item.result === null ? '⚙' : (item.ok ? '✓' : '✗')"></span>
+                          <span class="sse-tool-name" x-text="item.summary || item.toolName"></span>
+                          <details style="flex:1;min-width:0">
+                            <summary style="cursor:pointer;color:var(--text-mute);font-size:10px">input / output</summary>
+                            <pre class="sse-pre" x-text="tryFmt(item.input)"></pre>
+                            <pre class="sse-pre" x-show="item.result !== null" x-text="tryFmt(item.result)"></pre>
+                          </details>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <div x-show="turn.done"  class="sse-done"  x-text="'▶ ' + turn.stopReason"></div>
+                  <div x-show="turn.error" class="sse-error" x-text="turn.error"></div>
                 </div>
               </template>
-              <pre class="sse-text" x-show="turn.text" x-text="turn.text"></pre>
-              <div x-show="turn.done" class="sse-done" x-text="'▶ ' + turn.stopReason"></div>
-              <div x-show="turn.error" class="sse-error" x-text="turn.error"></div>
+              <div x-show="turns.length === 0"
+                   style="color:var(--text-mute);font-size:11px;padding:8px">Waiting for events…</div>
             </div>
           </template>
-          <div x-show="turns.length === 0"
-               style="color:var(--text-mute);font-size:11px;padding:8px">Waiting for events…</div>
+
+          <!-- Forge stream -->
+          <template x-if="source === 'forge'">
+            <div>
+              <template x-for="(f, i) in forges" :key="i">
+                <div class="sse-turn">
+                  <div class="sse-turn-header"
+                       x-text="(f.actionType || '?') + (f.toolName ? ' · ' + f.toolName : '') + ' · tc ' + shortId(f.toolCallId)"></div>
+                  <details style="margin-bottom:4px">
+                    <summary style="cursor:pointer;font-size:10px;color:var(--text-mute)">code</summary>
+                    <pre class="sse-pre" style="max-height:200px;overflow-y:auto" x-text="f.code"></pre>
+                  </details>
+                  <div x-show="f.done" class="sse-done"
+                       x-text="f.result === 'created' ? '▶ created: ' + f.toolName : '▶ pending review'"></div>
+                </div>
+              </template>
+              <div x-show="forges.length === 0"
+                   style="color:var(--text-mute);font-size:11px;padding:8px">Waiting for forge events…</div>
+            </div>
+          </template>
+
         </div>
 
-        <!-- Raw view -->
+        <!-- Raw view (same for both sources) -->
         <div class="event-log" x-show="view==='raw'">
           <template x-for="(ev, i) in events" :key="i">
             <div class="event-item">

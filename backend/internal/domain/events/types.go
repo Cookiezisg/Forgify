@@ -32,6 +32,22 @@ type ChatToken struct {
 // EventName 返回 "chat.token"。
 func (ChatToken) EventName() string { return "chat.token" }
 
+// ChatReasoningToken fires for every streamed token of the model's reasoning
+// (thinking) content. Only produced by reasoning-capable models such as
+// DeepSeek-R1. Clients may display this in a collapsible "Thinking…" block.
+//
+// ChatReasoningToken 在 LLM 推理内容（thinking）流式返回时触发，
+// 仅推理型模型（如 DeepSeek-R1）产生。前端可折叠展示。
+type ChatReasoningToken struct {
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`
+	Delta          string `json:"delta"`
+}
+
+// EventName returns "chat.reasoning_token".
+// EventName 返回 "chat.reasoning_token"。
+func (ChatReasoningToken) EventName() string { return "chat.reasoning_token" }
+
 // ChatToolCall fires when the Agent decides to call a system tool.
 //
 // ChatToolCall 在 Agent 决定调用某个 system tool 时触发。

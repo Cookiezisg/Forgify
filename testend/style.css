@@ -180,6 +180,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .event-name.chat-error { background: #fde8e8; color: var(--red); }
 .event-name.chat-tool_call, .event-name.chat-tool_result { background: #fef9e1; color: var(--yellow); }
 .event-name.conversation-title_updated { background: #ede8fe; color: #6f42c1; }
+.event-name.tool-code_streaming { background: #e8f5e9; color: var(--green); }
+.event-name.tool-created, .event-name.tool-pending_created { background: #e3f2fd; color: var(--accent); }
+.event-name.chat-reasoning_token { background: #f3e8ff; color: #7b2d8b; }
 .event-name.log { background: var(--bg3); color: var(--text-dim); }
 .event-time { font-size: 10px; color: var(--text-mute); float: right; }
 .event-data { color: var(--text-dim); white-space: pre-wrap; word-break: break-all; }
@@ -280,6 +283,18 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .t-status.ok  { color: var(--green); }
 .t-status.err { color: var(--red); }
 .t-detail { padding: 0 8px 6px 58px; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; font-size: 10px; }
+
+/* ── Thinking Block (chat panel) ── */
+.thinking-block { background: #fafbff; border: 1px solid #d8dff7; border-radius: 3px; margin-bottom: 4px; font-size: 11px; }
+.thinking-summary { padding: 4px 8px; cursor: pointer; color: var(--blue); user-select: none; list-style: none; font-size: 11px; font-style: italic; }
+.thinking-summary::-webkit-details-marker { display: none; }
+.thinking-block[open] .thinking-summary { border-bottom: 1px solid #d8dff7; font-style: normal; }
+.thinking-content { padding: 6px 8px; font-family: 'Consolas', monospace; font-size: 10px; color: var(--text-dim); white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow-y: auto; line-height: 1.5; }
+
+/* ── SSE Thinking Block (SSE stream view) ── */
+.sse-thinking-block { background: #fafbff; border: 1px solid #d8dff7; border-radius: 3px; margin-bottom: 4px; }
+.sse-thinking-summary { padding: 3px 6px; cursor: pointer; color: var(--blue); font-size: 10px; user-select: none; list-style: none; }
+.sse-thinking-summary::-webkit-details-marker { display: none; }
 
 /* ── Tool Step Cards (chat panel) ── */
 .tool-steps { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; max-width: 100%; }

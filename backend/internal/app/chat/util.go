@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -15,7 +14,6 @@ import (
 
 func newMsgID() string        { return "msg_" + randHex(8) }
 func newAttachmentID() string { return "att_" + randHex(8) }
-func newToolCallID() string   { return "tc_" + randHex(8) }
 
 func randHex(n int) string {
 	b := make([]byte, n)
@@ -52,22 +50,6 @@ func supportsVision(provider string) bool {
 	default:
 		return false
 	}
-}
-
-type tokenUsageJSON struct {
-	InputTokens  int `json:"inputTokens"`
-	OutputTokens int `json:"outputTokens"`
-}
-
-func tokenUsageToJSON(u *schema.TokenUsage) string {
-	if u == nil {
-		return ""
-	}
-	b, _ := json.Marshal(tokenUsageJSON{
-		InputTokens:  u.PromptTokens,
-		OutputTokens: u.CompletionTokens,
-	})
-	return string(b)
 }
 
 func truncate(s string, n int) string {

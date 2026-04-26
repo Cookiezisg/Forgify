@@ -25,19 +25,20 @@ import (
 // Message 是对话中的一个回合。Role 决定发言方；
 // Status 追踪 assistant 消息的生成生命周期。
 type Message struct {
-	ID             string         `gorm:"primaryKey;type:text" json:"id"`
-	ConversationID string         `gorm:"not null;index;type:text" json:"conversationId"`
-	UserID         string         `gorm:"not null;type:text" json:"-"`
-	Role           string         `gorm:"not null;type:text" json:"role"`
-	Content        string         `gorm:"not null;type:text" json:"content"`
-	Status         string         `gorm:"not null;type:text;default:'completed'" json:"status"`
-	StopReason     string         `gorm:"type:text;default:''" json:"stopReason,omitempty"`
-	TokenUsage     string         `gorm:"type:text;default:''" json:"tokenUsage,omitempty"`    // JSON: {inputTokens,outputTokens,cacheReadTokens}
-	ToolCalls      string         `gorm:"type:text;default:''" json:"toolCalls,omitempty"`     // JSON array of tool call objects
-	ToolCallID     string         `gorm:"type:text;default:''" json:"toolCallId,omitempty"`    // tool role: links to assistant message
-	AttachmentIDs  string         `gorm:"type:text;default:''" json:"attachmentIds,omitempty"` // JSON array of att_<16hex>
-	CreatedAt      time.Time      `json:"createdAt"`
-	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+	ID               string         `gorm:"primaryKey;type:text" json:"id"`
+	ConversationID   string         `gorm:"not null;index;type:text" json:"conversationId"`
+	UserID           string         `gorm:"not null;type:text" json:"-"`
+	Role             string         `gorm:"not null;type:text" json:"role"`
+	Content          string         `gorm:"not null;type:text" json:"content"`
+	Status           string         `gorm:"not null;type:text;default:'completed'" json:"status"`
+	StopReason       string         `gorm:"type:text;default:''" json:"stopReason,omitempty"`
+	TokenUsage       string         `gorm:"type:text;default:''" json:"tokenUsage,omitempty"`       // JSON: {inputTokens,outputTokens,cacheReadTokens}
+	ToolCalls        string         `gorm:"type:text;default:''" json:"toolCalls,omitempty"`        // JSON array of tool call objects
+	ToolCallID       string         `gorm:"type:text;default:''" json:"toolCallId,omitempty"`       // tool role: links to assistant message
+	ReasoningContent string         `gorm:"type:text;default:''" json:"reasoningContent,omitempty"` // thinking-mode: must be echoed back to API
+	AttachmentIDs    string         `gorm:"type:text;default:''" json:"attachmentIds,omitempty"`    // JSON array of att_<16hex>
+	CreatedAt        time.Time      `json:"createdAt"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // TableName locks the DB table to "messages".

@@ -7,7 +7,7 @@ document.addEventListener('alpine:init', () => {
     streaming: false,
     _es: null,
     _streamMsgId: null,
-    _pendingSteps: {},  // toolCallId → step object, for tool_result lookup
+    _pendingToolItems: {},  // toolCallId → item ref
 
     get conversationId() { return Alpine.store('app').conversationId },
     get title() { return Alpine.store('app').conversationTitle },
@@ -23,46 +23,81 @@ document.addEventListener('alpine:init', () => {
       })
     },
 
+    // ── loadMessages ──────────────────────────────────────────────────────────
+
     async loadMessages(id) {
       const r = await fetch(`/api/v1/conversations/${id}/messages?limit=200`)
       if (!r.ok) return
       const j = await r.json()
       const raw = (j.data || []).filter(m => m.status !== 'pending')
 
-      // Fold tool-call / tool-result rows into the following assistant message's
-      // steps array, so they render as step cards rather than separate bubbles.
+      // Rebuild conversation as an ordered list. Each row becomes items[].
+      // Multiple DB rows belonging to one assistant turn are merged into one
+      // displayed message (intermediate + tool results + final).
       const msgs = []
-      const pendingSteps = []
+      let cur = null  // current assistant message being built
 
       for (const m of raw) {
-        if (m.role === 'assistant' && !m.content && m.toolCalls) {
-          // LLM tool-call decision: parse into pending steps.
-          let calls = []
-          try { calls = JSON.parse(m.toolCalls) } catch {}
-          for (const tc of calls) {
-            pendingSteps.push({
+        if (m.role === 'user') {
+          cur = null
+          msgs.push(m)
+          continue
+        }
+
+        if (m.role === 'assistant') {
+          const items = []
+          // Reasoning first (if any)
+          if (m.reasoningContent) {
+            items.push({ type: 'reasoning', content: m.reasoningContent, done: true })
+          }
+          // Text content (if any)
+          if (m.content) {
+            items.push({ type: 'text', content: m.content })
+          }
+          // Tool calls (if any)
+          if (m.toolCalls) {
+            let calls = []
+            try { calls = JSON.parse(m.toolCalls) } catch {}
+            calls.forEach(tc => items.push({
+              type:       'tool',
               toolCallId: tc.id,
               toolName:   tc.function?.name ?? '',
               input:      tc.function?.arguments ?? '{}',
               result:     null,
               ok:         null,
-            })
+            }))
           }
-        } else if (m.role === 'tool') {
-          // Match result to its pending step.
-          const step = pendingSteps.find(s => s.toolCallId === m.toolCallId)
-          if (step) { step.result = m.content; step.ok = true }
-        } else {
-          // User or final-text assistant message: attach any accumulated steps.
-          if (pendingSteps.length) {
-            m.steps = pendingSteps.splice(0)
+
+          if (m.toolCalls && cur) {
+            // Intermediate step: append to the in-progress turn
+            cur.items.push(...items)
+          } else if (m.toolCalls) {
+            // New turn that starts with a tool call
+            cur = { id: m.id, role: 'assistant', items, status: m.status }
+            msgs.push(cur)
+          } else {
+            // Final response text
+            if (cur) {
+              cur.items.push(...items)
+              cur.status = m.status
+              cur = null
+            } else {
+              msgs.push({ id: m.id, role: 'assistant', items, status: m.status })
+            }
           }
-          msgs.push(m)
+          continue
+        }
+
+        if (m.role === 'tool' && cur) {
+          const item = cur.items.find(i => i.type === 'tool' && i.toolCallId === m.toolCallId)
+          if (item) { item.result = m.content; item.ok = true }
         }
       }
 
       this.messages = msgs
     },
+
+    // ── send ──────────────────────────────────────────────────────────────────
 
     async send() {
       const content = this.input.trim()
@@ -77,10 +112,9 @@ document.addEventListener('alpine:init', () => {
       if (!r.ok) return
 
       const j = await r.json()
-      // Optimistically add user message and a streaming placeholder.
       this.messages.push({ id: j.data.messageId, role: 'user', content, status: 'completed' })
       this._streamMsgId = 'stream-' + Date.now()
-      this.messages.push({ id: this._streamMsgId, role: 'assistant', content: '', steps: [], status: 'streaming' })
+      this.messages.push({ id: this._streamMsgId, role: 'assistant', items: [], status: 'streaming' })
       this.streaming = true
       this._scrollBottom()
     },
@@ -90,64 +124,94 @@ document.addEventListener('alpine:init', () => {
       await fetch(`/api/v1/conversations/${this.conversationId}/stream`, { method: 'DELETE' })
     },
 
+    // ── SSE ───────────────────────────────────────────────────────────────────
+
     _connectSSE(id) {
       this._closeSSE()
       const es = new EventSource(`/api/v1/events?conversationId=${id}`)
       this._es = es
 
+      const _msg = () => this.messages.find(m => m.id === this._streamMsgId)
+      const _last = (type) => {
+        const msg = _msg(); if (!msg) return null
+        const items = msg.items
+        return (items.length && items[items.length - 1].type === type)
+          ? items[items.length - 1] : null
+      }
+
+      es.addEventListener('chat.reasoning_token', e => {
+        const d = JSON.parse(e.data)
+        const msg = _msg(); if (!msg) return
+        let item = _last('reasoning')
+        if (!item) { item = { type: 'reasoning', content: '', done: false }; msg.items.push(item) }
+        item.content += d.delta
+        this._scrollBottom()
+      })
+
       es.addEventListener('chat.token', e => {
-        const data = JSON.parse(e.data)
-        const msg = this.messages.find(m => m.id === this._streamMsgId)
-        if (msg) { msg.content += data.delta; this._scrollBottom() }
+        const d = JSON.parse(e.data)
+        const msg = _msg(); if (!msg) return
+        // Mark any active reasoning as done
+        const r = msg.items.find(i => i.type === 'reasoning' && !i.done)
+        if (r) r.done = true
+        // Append to last text item or start new segment
+        let item = _last('text')
+        if (!item) { item = { type: 'text', content: '' }; msg.items.push(item) }
+        item.content += d.delta
+        this._scrollBottom()
       })
 
       es.addEventListener('chat.tool_call', e => {
         const d = JSON.parse(e.data)
-        const msg = this.messages.find(m => m.id === this._streamMsgId)
-        if (!msg) return
-        if (!msg.steps) msg.steps = []
-        const step = { toolCallId: d.toolCallId, toolName: d.toolName, input: d.toolInput, result: null, ok: null }
-        msg.steps.push(step)
-        this._pendingSteps[d.toolCallId] = step
+        const msg = _msg(); if (!msg) return
+        const item = { type: 'tool', toolCallId: d.toolCallId, toolName: d.toolName,
+                       input: d.toolInput, result: null, ok: null }
+        msg.items.push(item)
+        this._pendingToolItems[d.toolCallId] = item
+        // New text segment for post-tool text
+        msg.items.push({ type: 'text', content: '' })
         this._scrollBottom()
       })
 
       es.addEventListener('chat.tool_result', e => {
         const d = JSON.parse(e.data)
-        const step = this._pendingSteps[d.toolCallId]
-        if (step) { step.result = d.result; step.ok = d.ok }
+        const item = this._pendingToolItems[d.toolCallId]
+        if (item) { item.result = d.result; item.ok = d.ok }
       })
 
       es.addEventListener('chat.done', e => {
         const data = JSON.parse(e.data)
-        const msg = this.messages.find(m => m.id === this._streamMsgId)
+        const msg = _msg()
         if (msg) {
+          // Drop trailing empty text segments
+          while (msg.items.length && msg.items[msg.items.length - 1].type === 'text'
+                 && !msg.items[msg.items.length - 1].content) {
+            msg.items.pop()
+          }
           msg.status = 'completed'
           msg.stopReason = data.stopReason
         }
         this.streaming = false
         this._streamMsgId = null
-        // Reload to get the persisted assistant message with real ID.
         this.loadMessages(id)
       })
 
       es.addEventListener('chat.error', e => {
         const data = JSON.parse(e.data)
-        const msg = this.messages.find(m => m.id === this._streamMsgId)
-        if (msg) { msg.status = 'error'; msg.content = msg.content || data.message }
+        const msg = _msg()
+        if (msg) { msg.status = 'error'; msg.errorMsg = data.message }
         this.streaming = false
         this._streamMsgId = null
       })
 
       es.addEventListener('conversation.title_updated', e => {
-        const data = JSON.parse(e.data)
-        Alpine.store('app').conversationTitle = data.title
+        Alpine.store('app').conversationTitle = JSON.parse(e.data).title
       })
     },
 
     _closeSSE() {
       if (this._es) { this._es.close(); this._es = null }
-      this._pendingSteps = {}
+      this._pendingToolItems = {}
     },
 
     _scrollBottom() {
@@ -162,11 +226,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     handleKeydown(e) {
-      // Shift+Enter = newline, Enter alone = send.
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        this.send()
-      }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send() }
     },
   }))
 })

@@ -178,7 +178,7 @@ func (t *SearchTool) CoreInfo(argsJSON string) string {
 		Query string `json:"query"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.Query
+	return "Searching tools: " + args.Query
 }
 
 func (t *SearchTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -300,7 +300,7 @@ func (t *GetTool) CoreInfo(argsJSON string) string {
 		ToolID string `json:"tool_id"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.ToolID
+	return "Reading tool: " + args.ToolID
 }
 
 func (t *GetTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -370,7 +370,7 @@ func (t *CreateTool) CoreInfo(argsJSON string) string {
 		Name string `json:"name"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.Name
+	return "Creating tool: " + args.Name
 }
 
 func (t *CreateTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -453,10 +453,10 @@ func (t *EditTool) CoreInfo(argsJSON string) string {
 	if len(instr) > 40 {
 		instr = instr[:40] + "…"
 	}
-	if args.ToolID != "" && instr != "" {
-		return args.ToolID + ": " + instr
+	if instr != "" {
+		return "Editing tool " + args.ToolID + ": " + instr
 	}
-	return args.ToolID + instr
+	return "Editing tool: " + args.ToolID
 }
 
 func (t *EditTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {
@@ -541,7 +541,7 @@ func (t *RunTool) CoreInfo(argsJSON string) string {
 		ToolID string `json:"tool_id"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
-	return args.ToolID
+	return "Running tool: " + args.ToolID
 }
 
 func (t *RunTool) InvokableRun(ctx context.Context, argsJSON string, _ ...tool.Option) (string, error) {

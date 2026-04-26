@@ -26,4 +26,10 @@ stop:
 logs:
 	@tail -f $(LOG_FILE)
 
-.PHONY: testend stop logs
+clear:
+	@lsof -ti :$(PORT) | xargs kill 2>/dev/null || true
+	@rm -rf $(BACKEND_DATA_DIR)
+	@rm -f  $(LOG_FILE)
+	@echo "→ Cleared (db + attachments + log)"
+
+.PHONY: testend stop logs clear

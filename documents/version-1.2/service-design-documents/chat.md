@@ -183,42 +183,65 @@ anthropicChecker := func(ctx context.Context, sr *schema.StreamReader[*schema.Me
 
 **每个 provider 的 StreamToolCallChecker 实现放在 `infra/eino/<provider>.go`。**
 
-### 3.5 toolInterceptor：Tool Call 可见性
+### 3.5 自实现 ReAct Loop
 
-实际实现**不使用** Eino Callbacks，而是用 `toolInterceptor` 包装每个 `tool.BaseTool`，在执行前后钩入事件发布和消息缓冲：
+不使用 `react.NewAgent` 黑盒，直接驱动 `model.ToolCallingChatModel.Stream()`，
+完全掌控每一步：边读流边推 `chat.token` SSE，读完拿到完整响应，
+有 ToolCalls 就执行 tool，没有就结束。
+
+> **为什么不用 `react.NewAgent` + Callback**：实测发现 Eino v0.8.11 中
+> `ModelCallbackHandler.OnEnd` 对流式 ChatModel **不触发**（仅触发
+> `OnEndWithStreamOutput`），导致 DB 消息 content 为空、status=error。
+> 自实现 loop 彻底消除框架内部时序依赖。
 
 ```go
-// app/chat/interceptor.go
+// app/chat/pipeline.go — runReactLoop（伪代码）
 
-type toolInterceptor struct {
-    inner  tool.BaseTool
-    convID string
-    msgID  string   // 当前轮次的 assistant message ID，用于 SSE 关联
-    bridge events.Bridge
-    buf    *[]*chatdomain.Message  // 指向 processTask 的 msgBuf，turn 结束后统一写 DB
-    ...
-}
+modelWithTools, _ := built.Model.WithTools(collectToolInfos(ctx, s.tools))
 
-func (t *toolInterceptor) InvokableRun(ctx, argsJSON string, ...) (string, error) {
-    // 1. 计算 summary（CoreInfo 或 fallback key 提取）
-    // 2. bridge.Publish(ChatToolCall{summary: ..., toolInput: ...})
-    // 3. 追加 role=assistant + ToolCalls JSON 到 *buf（不写 DB）
-    // 4. 调真实 tool.InvokableRun
-    // 5. bridge.Publish(ChatToolResult{result: ..., ok: ...})
-    // 6. 追加 role=tool + ToolCallID 到 *buf（不写 DB）
+for step < 20 {
+    callMsgs := append([]*schema.Message{systemMsg}, currentMessages...)
+    sr, _ := modelWithTools.Stream(ctx, callMsgs)
+
+    // collectStream：边读边推 chat.token SSE，拼 ToolCall 片段
+    response, stopReason, usage := s.collectStream(ctx, sr, convID, assistantMsgID)
+    currentMessages = append(currentMessages, response)
+
+    if len(response.ToolCalls) == 0 {
+        // 最终响应：写 DB，结束
+        s.saveFinalMessage(ctx, assistantMsgID, convID, uid, response, stopReason, usage)
+        break
+    }
+
+    // 中间响应：写 DB + 逐个执行 tool
+    s.saveIntermediateMessage(ctx, convID, uid, response)
+    for _, tc := range response.ToolCalls {
+        bridge.Publish(ChatToolCall{ToolCallID: tc.ID, Summary: s.toolSummary(...)})
+        result, ok := s.executeTool(ctx, tc)
+        bridge.Publish(ChatToolResult{ToolCallID: tc.ID, Result: result})
+        repo.Save(role=tool, content=result, tool_call_id=tc.ID)
+        currentMessages = append(currentMessages, schema.ToolMessage(result, tc.ID))
+    }
 }
 ```
 
-**Summarizable 接口**（可选）：每个 tool 可实现 `CoreInfo(argsJSON string) string` 返回人类可读的核心信息（如 `"$ git status"`、`"/Users/sunweilin"`），写入 `ChatToolCall.Summary` 字段推给前端。未实现的 tool 通过 fallback 扫描 `query`/`url`/`path`/`command` 等常见字段名提取。
+**关键点**：
+- `collectStream` 边读流边推 `chat.token` SSE（token 即时到前端），ToolCall 片段按 `tc.Index` 累积拼接（兼容 OpenAI 流式格式）
+- LLM 分配的 `tc.ID` 直接用于 SSE 关联和 DB `tool_call_id`，保证 LLM 下轮重建完整上下文
+- `ChatToolCall` SSE 在流读完、ToolCalls 确定后发；`ChatToolResult` SSE 在 tool 执行完后发
+- 取消/错误时调 `saveTerminalMessage` 补存 cancelled/error 消息
 
-**wrapTools** 在 processTask 构建 agent 前被调用，把 `s.tools` 全部包一层 `toolInterceptor` 后传给 `ToolsNodeConfig.Tools`。
+**Summarizable 接口**（可选，定义在 `app/agent/summarizable.go`）：tool 实现 `CoreInfo(argsJSON) string` 返回人类可读摘要（如 `"$ git status"`）；未实现走 `ExtractFallbackSummary` 字段名扫描。
 
 ```
 app/chat/
-  chat.go         ← 公开 API：Service struct、Send、Cancel、ListMessages、UploadAttachment
-  pipeline.go     ← Agent 执行管道：processTask、buildEinoMessages、autoTitle 等
-  interceptor.go  ← Tool call 拦截：toolInterceptor、Summarizable、wrapTools、extractFallbackSummary
-  util.go         ← 杂项：newMsgID、newToolCallID、randHex、imageToInputPart 等
+  chat.go     ← 公开 API
+  pipeline.go ← ReAct loop：runReactLoop、collectStream、executeTool、buildEinoMessages 等
+  util.go     ← 杂项：newMsgID、imageToInputPart 等
+
+app/agent/
+  summarizable.go        ← Summarizable 接口 + ExtractFallbackSummary
+  forge/system/web.go    ← CoreInfo 实现
 ```
 
 ---
@@ -305,9 +328,10 @@ type Message struct {
     Status         string         `gorm:"not null;type:text;default:'completed'" json:"status"`
     StopReason     string         `gorm:"type:text;default:''" json:"stopReason,omitempty"`
     TokenUsage     string         `gorm:"type:text;default:''" json:"tokenUsage,omitempty"`
-    ToolCalls      string         `gorm:"type:text" json:"toolCalls,omitempty"`
-    ToolCallID     string         `gorm:"type:text" json:"toolCallId,omitempty"`
-    AttachmentIDs  string         `gorm:"type:text;default:''" json:"attachmentIds,omitempty"`
+    ToolCalls        string         `gorm:"type:text" json:"toolCalls,omitempty"`
+    ToolCallID       string         `gorm:"type:text" json:"toolCallId,omitempty"`
+    ReasoningContent string         `gorm:"type:text" json:"reasoningContent,omitempty"` // thinking-mode APIs require this to be echoed back
+    AttachmentIDs    string         `gorm:"type:text;default:''" json:"attachmentIds,omitempty"`
     CreatedAt      time.Time      `json:"createdAt"`
     DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
 }

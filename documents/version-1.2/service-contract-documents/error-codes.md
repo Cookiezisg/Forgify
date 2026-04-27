@@ -123,10 +123,6 @@ handler 侧调 `response.FromDomainError(w, log, err)` 自动翻译。
 | `TOOL_RUN_FAILED` | 422 | `tool.ErrRunFailed` | sandbox 内部错误（≠ ok=false 的执行失败）| ✅ |
 | `TOOL_AST_PARSE_FAILED` | 422 | `tool.ErrASTParseError` | 代码无法被 Python AST 解析 | ✅ |
 | `TOOL_IMPORT_INVALID` | 400 | `tool.ErrImportInvalid` | 导入 JSON 格式错误 | ✅ |
-| `TOOL_VERSION_NOT_FOUND` | 404 | `tool.ErrVersionNotFound` | 恢复不存在的版本 | ⬜ |
-| `TOOL_PENDING_NOT_FOUND` | 404 | `tool.ErrPendingNotFound` | accept 不存在的 pending | ⬜ |
-| `TOOL_TEST_CASE_NOT_FOUND` | 404 | `tool.ErrTestCaseNotFound` | | ⬜ |
-| `TOOL_IMPORT_INVALID` | 400 | `tool.ErrImportInvalid` | 导入文件格式错 | ⬜ |
 | `TOOL_IMPORT_CONFLICT` | 409 | `tool.ErrImportConflict` | 导入名字冲突需用户决策 | ⬜ |
 
 ---

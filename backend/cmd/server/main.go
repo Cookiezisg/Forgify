@@ -1,10 +1,11 @@
 // Command server boots the Forgify backend: logger, DB, HTTP router with
-// middleware chain, and graceful shutdown. Per-domain handlers and
-// services wire in through router.Deps as Phase 2 progresses.
+// middleware chain, and graceful shutdown.
 //
-// Command server 启动 Forgify 后端：logger、DB、带中间件链的 HTTP 路由、
-// 优雅关闭。各 domain 的 handler 和 service 随 Phase 2 推进通过
-// router.Deps 接入。
+// Command server 启动 Forgify 后端：logger、DB、带中间件链的 HTTP 路由、优雅关闭。
+//
+// TODO: audit all import aliases per S13 (<name><role> convention) after
+// the chat infra refactor is fully complete.
+// TODO: 重构完成后按 S13（<name><role> 命名约定）统一审计所有 import 别名。
 package main
 
 import (
@@ -22,8 +23,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/cloudwego/eino/schema"
-	agentpkg "github.com/sunweilin/forgify/backend/internal/app/agent"
+	agentapp "github.com/sunweilin/forgify/backend/internal/app/agent"
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
 	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
@@ -36,8 +36,8 @@ import (
 	tooldomain "github.com/sunweilin/forgify/backend/internal/domain/tool"
 	infracrypto "github.com/sunweilin/forgify/backend/internal/infra/crypto"
 	"github.com/sunweilin/forgify/backend/internal/infra/db"
-	einoinfra "github.com/sunweilin/forgify/backend/internal/infra/eino"
 	"github.com/sunweilin/forgify/backend/internal/infra/events/memory"
+	llminfra "github.com/sunweilin/forgify/backend/internal/infra/llm"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 	"github.com/sunweilin/forgify/backend/internal/infra/sandbox"
 	apikeystore "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
@@ -50,17 +50,12 @@ import (
 
 func main() {
 	port := flag.Int("port", 0, "HTTP port (0 = pick a free port, print it)")
-	dataDir := flag.String("data-dir", "", "Data directory (empty = in-memory SQLite)")
+	dataDir := flag.String("data-dir", "", "Data directory (empty = os.TempDir)")
 	dev := flag.Bool("dev", false, "Development mode (colored console logs + /dev/* routes)")
 	collectionsDir := flag.String("collections-dir", "../testend/collections", "Path to YAML test collections (dev mode)")
 	integrationDir := flag.String("integration-dir", "../testend", "Path to testend/ directory served at /dev/static/ (dev mode)")
 	flag.Parse()
 
-	// In dev mode, wire a LogBroadcaster as a second Zap core so that all
-	// log entries are also streamed to the /dev/logs SSE endpoint.
-	//
-	// dev 模式下，把 LogBroadcaster 作为第二个 Zap core 接入，让所有日志
-	// 同时流向 /dev/logs SSE 端点。
 	var broadcaster *logger.LogBroadcaster
 	var logExtras []zapcore.Core
 	if *dev {
@@ -73,7 +68,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer log.Sync() //nolint:errcheck // flush on exit; error is noise
+	defer log.Sync() //nolint:errcheck
 
 	gdb, err := db.Open(db.Config{DataDir: *dataDir})
 	if err != nil {
@@ -86,15 +81,13 @@ func main() {
 		}
 	}()
 
-	// Domain tables — append new GORM models here when adding a Phase.
-	// Domain 表——新增 Phase 时把 GORM model 追加到这里。
 	if err := db.Migrate(gdb,
 		&apikeydomain.APIKey{},
 		&modeldomain.ModelConfig{},
 		&convdomain.Conversation{},
 		&chatdomain.Message{},
+		&chatdomain.Block{}, // message_blocks table (chat infra refactor)
 		&chatdomain.Attachment{},
-		// Phase 3: tool domain
 		&tooldomain.Tool{},
 		&tooldomain.ToolVersion{},
 		&tooldomain.ToolTestCase{},
@@ -105,14 +98,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// apikey stack: machine-fingerprint-derived AES-GCM encryptor, HTTP
-	// connectivity tester, GORM-backed store, orchestrating Service.
-	// Fingerprint failure is fatal — sharing a fallback key across users
-	// would be a critical security hole (see infra/crypto.ErrNoFingerprint).
-	//
-	// apikey 栈：基于机器指纹派生的 AES-GCM encryptor、HTTP 连通性 tester、
-	// GORM store、Service 编排。指纹获取失败直接退出——共享 fallback 密钥
-	// 等于严重安全漏洞（见 infra/crypto.ErrNoFingerprint）。
 	fingerprint, err := infracrypto.MachineFingerprint()
 	if err != nil {
 		log.Error("machine fingerprint", zap.Error(err))
@@ -126,24 +111,24 @@ func main() {
 	apikeyService := apikeyapp.NewService(
 		apikeystore.New(gdb),
 		encryptor,
-		apikeyapp.NewHTTPTester(nil), // default 10s timeout / 默认 10s 超时
+		apikeyapp.NewHTTPTester(nil),
 		log,
 	)
 
 	modelService := modelapp.NewService(modelstore.New(gdb), log)
 	convService := convapp.NewService(convstore.New(gdb), log)
 
-	// Phase 3: tool service.
-	// toolLLMClient adapts the existing model factory to the thin LLMClient
-	// interface used by Service.GenerateTestCases (non-streaming JSON calls).
+	llmFactory := llminfra.NewFactory()
+
+	// toolLLMClient satisfies toolapp.LLMClient for GenerateTestCases
+	// (non-streaming JSON calls only).
 	//
-	// toolLLMClient 把已有 model factory 适配成 toolapp.LLMClient 接口
-	// （供 GenerateTestCases 使用的非流式 JSON 调用）。
-	einoFactory := einoinfra.NewDefaultFactory()
+	// toolLLMClient 满足 toolapp.LLMClient 接口，仅用于 GenerateTestCases
+	// 的非流式 JSON 调用。
 	toolLLM := &toolLLMClientAdapter{
 		picker:  modelService,
 		keys:    apikeyService,
-		factory: einoFactory,
+		factory: llmFactory,
 	}
 	toolService := toolapp.NewService(
 		toolstore.New(gdb),
@@ -152,46 +137,32 @@ func main() {
 		log,
 	)
 
+	chatRepo := chatstore.New(gdb)
 	eventsBridge := memory.NewBridge(log)
 	chatService := chatapp.NewService(
-		chatstore.New(gdb),
+		chatRepo,
 		convstore.New(gdb),
 		modelService,
 		apikeyService,
-		einoFactory,
+		llmFactory,
 		eventsBridge,
 		*dataDir,
 		log,
 	)
 
-	// Inject all system tools into the ReAct Agent:
-	//   - ForgeTools: user tool library (search/get/create/edit/run)
-	//   - WebTools:   web_search + fetch_url
-	//   - SystemTools: file I/O, shell, python, datetime
-	//
-	// 把所有 system tool 注入 ReAct Agent：
-	//   - ForgeTools：用户工具库（search/get/create/edit/run）
-	//   - WebTools：web_search + fetch_url
-	//   - SystemTools：文件读写、shell、python、datetime
-	forgeTools := agentpkg.ForgeTools(
+	forgeTools := agentapp.ForgeTools(
 		toolService,
-		chatstore.New(gdb),
+		chatRepo,
 		modelService,
 		apikeyService,
-		einoFactory,
+		llmFactory,
 		eventsBridge,
 	)
-	webTools, err := agentpkg.WebTools(context.Background())
-	if err != nil {
-		log.Warn("web tools unavailable", zap.Error(err))
-		webTools = nil
-	}
+	webTools := agentapp.WebTools()
 	allTools := append(forgeTools, webTools...)
-	allTools = append(allTools, agentpkg.SystemTools()...)
+	allTools = append(allTools, agentapp.SystemTools()...)
 	chatService.SetTools(allTools)
 
-	// Listen first so we know the actual port before building router.Deps.
-	// 先监听，才能在构建 router.Deps 前知道实际端口。
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
 		log.Error("listen", zap.Error(err))
@@ -223,8 +194,8 @@ func main() {
 	srv := &http.Server{
 		Handler:     handler,
 		ReadTimeout: 15 * time.Second,
-		// WriteTimeout=0 because SSE streams may run for minutes.
-		// WriteTimeout=0，因为 SSE 流可能持续几分钟。
+		// WriteTimeout=0: SSE streams may run for minutes.
+		// WriteTimeout=0：SSE 流可能持续几分钟。
 		IdleTimeout: 60 * time.Second,
 	}
 
@@ -242,8 +213,6 @@ func main() {
 	<-ctx.Done()
 	log.Info("shutdown requested")
 
-	// Give in-flight requests up to 5s before forcing shutdown.
-	// 给进行中的请求最多 5 秒完成，之后强制关闭。
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -251,17 +220,15 @@ func main() {
 	}
 }
 
-// toolLLMClientAdapter satisfies toolapp.LLMClient using the existing model
-// factory + key provider stack. Used only for non-streaming JSON calls
-// (GenerateTestCases). Streaming calls live in app/agent/forge.go.
+// toolLLMClientAdapter satisfies toolapp.LLMClient using infra/llm.
+// Used only for non-streaming calls (GenerateTestCases).
 //
-// toolLLMClientAdapter 用已有 model factory + key provider 栈满足
-// toolapp.LLMClient 接口。仅用于非流式 JSON 调用（GenerateTestCases）。
-// 流式调用在 app/agent/forge.go。
+// toolLLMClientAdapter 用 infra/llm 满足 toolapp.LLMClient 接口，
+// 仅用于非流式调用（GenerateTestCases）。
 type toolLLMClientAdapter struct {
 	picker  modeldomain.ModelPicker
 	keys    apikeydomain.KeyProvider
-	factory einoinfra.ChatModelFactory
+	factory *llminfra.Factory
 }
 
 func (c *toolLLMClientAdapter) Generate(ctx context.Context, prompt string) (string, error) {
@@ -273,16 +240,15 @@ func (c *toolLLMClientAdapter) Generate(ctx context.Context, prompt string) (str
 	if err != nil {
 		return "", fmt.Errorf("toolLLMClient: resolve credentials: %w", err)
 	}
-	built, err := c.factory.Build(ctx, einoinfra.ModelConfig{
+	client, baseURL, err := c.factory.Build(llminfra.Config{
 		Provider: provider, ModelID: modelID,
 		Key: creds.Key, BaseURL: creds.BaseURL,
 	})
 	if err != nil {
-		return "", fmt.Errorf("toolLLMClient: build model: %w", err)
+		return "", fmt.Errorf("toolLLMClient: build client: %w", err)
 	}
-	msg, err := built.Model.Generate(ctx, []*schema.Message{schema.UserMessage(prompt)})
-	if err != nil {
-		return "", fmt.Errorf("toolLLMClient: generate: %w", err)
-	}
-	return msg.Content, nil
+	return llminfra.Generate(ctx, client, llminfra.Request{
+		ModelID: modelID, Key: creds.Key, BaseURL: baseURL,
+		Messages: []llminfra.LLMMessage{{Role: llminfra.RoleUser, Content: prompt}},
+	})
 }

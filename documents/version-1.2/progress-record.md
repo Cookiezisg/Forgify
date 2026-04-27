@@ -9,7 +9,7 @@
 
 ---
 
-## 1. 当前快照（截止 2026-04-26）
+## 1. 当前快照（截止 2026-04-27）
 
 ### 1.1 Phase 完成度总览
 
@@ -19,34 +19,39 @@
 | **Phase 1** | 基础 infra 7 件套（GORM / logger / crypto / events / middleware / response / pagination） | 6h | ✅ 72 测试 | 2026-04-23 |
 | **Phase 2** | 基础对话能力（apikey / model / conversation / chat） | ~11h | ✅ ~170 测试 | 2026-04-25 |
 | **Phase 3** | 工具锻造（forge / attachment / tool / chat 加 tool-calling） | ~12h | ✅ | 2026-04-26 |
+| **Chat 基础设施重构** | 彻底移除 Eino，自有 LLM 客户端 + Block 模型 | ~1 天 | ✅ | 2026-04-27 |
 | **Phase 4** | 工作流（workflow / flowrun / 节点 / scheduler / trigger） | ~20h | ⬜ | - |
 | **Phase 5** | 智能化（knowledge / intent / mcp / skill / chat 终极版） | ~15h | ⬜ | - |
 
-### 1.2 Phase 2 子任务明细
+### 1.2 Chat 基础设施重构完成度（2026-04-27）
+
+| 模块 | 状态 | 说明 |
+|---|---|---|
+| **infra/llm** | ✅ | 4 文件：llm.go / openai.go / anthropic.go / factory.go；替代 Eino；iter.Seq 流式 |
+| **app/agent/tool.go** | ✅ | Tool 4 方法接口；summary 框架注入/剥除；6 个 context helpers |
+| **domain/chat（Block 模型）** | ✅ | Message 精简为纯元数据；Block 实体 + 5 种类型；message_blocks 表 |
+| **infra/store/chat** | ✅ | Save ON CONFLICT upsert（保护 created_at）；批量取 blocks 避 N+1 |
+| **app/chat（5 文件）** | ✅ | pipeline / stream / tools / history / util；事件驱动；并行 tool call；取消状态正确 |
+| **app/agent/system/web/forge** | ✅ | 全部实现新 Tool 接口；Eino import 全消除；DDG 切换到 lite 端点 |
+| **Eino 依赖** | ✅ 全删 | infra/eino/ 目录删除；go.mod 中 Eino 依赖全部清除 |
+| **集成测试（13 组）** | ✅ | 真实 DeepSeek API 验证：CRUD/工具/分页/附件/错误处理/队列/自动命名/历史重建全通 |
+
+### 1.3 代码库统计（Chat 重构完成后）
+
+- **go build ./... 通过**，无 Eino import，无编译警告
+- **测试套件**：22 包，含 infra/llm（21 单测）+ app/agent（35 单测）+ app/chat（18 单测）+ store/chat（更新适配 Block 模型）
+- **质量门**：`go build ./...` 通过；`go test -count=1 -race ./...` 全绿
+- **已移除**：`infra/eino/`（4 文件）；FTS5 虚拟表（原基于已删除 content 列）
+- **已修复 4 个生产级 bug**（详见 §2 开发日志 2026-04-27 部分）
+
+### 1.4 Phase 2 子任务明细
 
 | Domain | 状态 | 说明 |
 |---|---|---|
 | **apikey** | ✅ 全部完成 | 7 步套路跑完：domain → store → tester → service → handler → 装配 → curl 冒烟 |
 | **model** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
 | **conversation** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
-| **chat** | ✅ 全部完成 | 7 步套路跑完，2026-04-25 |
-
-### 1.3 代码库统计（Phase 2 完成后）
-
-- **测试总数**：~170 全绿
-  - apikey 相关：61（app 38 + store 18 + domain 5）
-  - model 相关：28（app 12 + store 9 + domain 3 + handler 7）
-  - conversation 相关：28（app 11 + store 11 + handler 6）
-  - 其他（infra / middleware / router / pagination / crypto / events）：~55
-- **质量门**：`go vet ./...` 零警告、`go build ./...` 通过、`CGO_CFLAGS="-DSQLITE_ENABLE_FTS5" go test -count=1 -race ./...` 全绿
-- **2026-04-26 后置修复**：`apikey.ModelsFound` 持久化 + SSE buffer 64→2048
-
-### 1.4 Phase 3 开工准备
-
-Phase 2 全部完成，Phase 3 开工前需要：
-1. 阅读 `backend-design.md` 端到端推演模板，对 `forge` / `attachment` / `tool` domain 各写一段完整调用链
-2. 在 `service-design-documents/` 下新建 `tool.md` 详设计（含 4 个 schema 业务决策）
-3. 确认 `service-contract-documents/` 各文件里 Phase 3 段落的 ⬜ 状态
+| **chat** | ✅ 全部完成（重构后） | Block 模型、自有 LLM 客户端、完整集成测试验证，2026-04-27 |
 
 ---
 
@@ -128,6 +133,21 @@ Phase 2 全部完成，Phase 3 开工前需要：
 | 2026-04-26 | **[feat] testend SSE 双视图 + chat tool 步骤卡片**：SSE 标签页加 Stream/Raw 切换（Stream 视图按 messageId 聚合显示拼装文本 + tool call 摘要）。chat 面板 assistant 消息内嵌 tool step collapsible 卡片（⚙ running → ✓ ok/✗ error，可展开 input/output）。SQL 快捷查询补齐 5 个 tool 表。相关文件：chat.js / tab-sse.js / tab-sql.js / tester.html / style.css。|
 | 2026-04-26 | **[Phase 3 开工] tool domain layer**：完成 `domain/tool/tool.go`。5 个 entity（Tool / ToolVersion / ToolTestCase / ToolRunHistory / ToolTestHistory）+ ExecutionResult（定义在 domain 层避免 infra/sandbox ↔ app/tool 循环依赖）+ 9 个 sentinel + Repository 接口（30 个方法）+ 常量。ToolVersion 合并 pending 职责（status 字段区分 pending/accepted/rejected）。编译通过，database-design.md + error-codes.md 同步更新。|
 
+### Chat 基础设施重构（2026-04-27 开始）
+
+| 日期 | 内容 |
+|---|---|
+| 2026-04-27 | **[refactor] 重构决策**：深度分析当前 chat 管线，发现三处系统性设计债：(1) DB schema 把 LLM 内容结构拍扁成多列；(2) Eino 黑盒渗透 app 层，SSE 解析和请求构建完全不可见；(3) collectStream 整流收完再推，且 mid-stream 取消状态写错。新增 `documents/version-1.2/refactor-chat-infra.md` 详细设计文档，含 Block 模型、infra/llm 设计、iter.Seq streaming、parallel tool call 执行、LLM 提供 summary 等完整方案。|
+| 2026-04-27 | **[refactor Step 1] `internal/infra/llm/` 新建**：完全自主 LLM 流式客户端，取代 Eino 框架。4 个文件：`llm.go`（核心类型：StreamEvent / LLMMessage / ToolDef / Client 接口 / Generate helper）+ `openai.go`（OpenAI 兼容 SSE 客户端，iter.Seq，覆盖 OpenAI/DeepSeek/Qwen/Moonshot/Ollama）+ `anthropic.go`（Anthropic 原生 /v1/messages 客户端，content_block_start/delta/stop 格式，tool result 正确分组为 user 消息）+ `factory.go`（provider dispatch + resolveBaseURL）。关键决策：(1) `iter.Seq[StreamEvent]` 替代 channel，拉式迭代，无 goroutine 泄漏，break 干净退出；(2) `EventToolStart` 在 tool name 首次出现时立刻 emit，不等 arguments 完整；(3) `classifyHTTPError` 区分 401/429/400/404/5xx；(4) `Generate()` 通过消费 Stream 实现，不引入独立接口。集成测试 5 个全绿（真实 DeepSeek API）：TextStream / Generate / ToolCall / MultiTurn / ContextCancel。编译通过，无 Eino 依赖。|
+| 2026-04-27 | **[refactor Steps 2-11] chat 基础设施重构完成**：(Step 2) `app/agent/tool.go`：4 方法 Tool 接口，`injectSummaryField` 框架注入 summary，`StripSummary` 执行前剥除；(Step 3) `domain/chat/chat.go`：Message 精简为纯元数据，新增 Block 实体 + 5 种类型常量 + data 结构体，移除 RoleTool；(Step 4) `infra/db`：新增 message_blocks 表索引，移除 FTS5（原基于已删除的 content 列）；(Step 5) `infra/store/chat`：Save 事务写 blocks（自动 stamp MessageID），ListByConversation 批量取 blocks 避免 N+1；(Step 6) `domain/events`：新增 ChatToolCallStart，ChatDone 改为 inputTokens/outputTokens int；(Step 7) `app/agent/system.go / web.go / forge.go`：全部实现新 4 方法 Tool 接口，移除 Eino import，web_search 直接调 DuckDuckGo HTML，forge 内部 LLM 调用切到 infra/llm；(Step 8-9) `app/chat/`：按概念拆 5 个文件（chat/pipeline/stream/tools/history），pipeline 事件驱动 iter.Seq，tool call 并行执行，mid-stream 取消状态正确写 cancelled，新增 chat.tool_call_start SSE 事件；(Step 10) `main.go`：切到 llmFactory，WebTools 去掉 ctx 参数；(Step 11) 删除 `infra/eino/` + `go mod tidy`，Eino 依赖全部从 go.sum 消失。全量编译通过，22 包测试全绿。|
+| 2026-04-27 | **[refactor 测试补全]**：(infra/llm) openai_test.go 12 个单元测试（SSE 解析：text/tool call/parallel/reasoning/usage-only/ctx cancel；request builder：system prepend/tool call/stream flag/multimodal）+ anthropic_test.go 9 个单元测试（text/tool call/thinking block/request builder/tool result grouping）；(app/agent) tool_test.go 20 个单元测试（injectSummaryField/StripSummary/ToLLMDef/context helpers/ExtractFallbackSummary）+ system_test.go 15 个单元测试（6 个 tool 的 Execute + 接口合规检查）；(app/chat) stream_test.go 10 个单元测试（assembleAssistantBlocks 各场景 + parseToolArgs）+ history_test.go 8 个单元测试（buildAssistantLLMMessages/blocksToLLMMessages 含 tool call 和多轮）；(infra/store/chat) 更新存量测试适配 Block 模型，新增 3 个 Block 相关测试（Save with blocks/blocks replaced/blocks attached in list）。22 包全绿，0 失败。|
+| 2026-04-27 | **[doc-sync] events-design.md**：新增 `chat.tool_call_start` 行，`chat.done` tokenUsage 改为 inputTokens/outputTokens 两个 int 字段。database-design.md：messages 表描述更新（精简字段、移除 tool role、FTS5 移除说明），新增 message_blocks 表描述（字段/索引/block type 格式）。|
+| 2026-04-27 | **[fix] 三处严重逻辑 bug 修复**：(1) ReAct 多步循环 DB 覆盖：原 `runStep` 每步用同一 `assistantMsgID` 写 DB，下一步覆盖上一步的 blocks，工具调用历史丢失。修复：`runStep` 不再写 DB，`runReactLoop` 统一管理持久化——所有步骤的 blocks 累积进 `allBlocks`，中间步写 `status=streaming`（buildLLMHistory 会跳过），最终步写真实 status + stopReason，一次 save 完整记录整个 ReAct 序列；(2) maxSteps 退出 DB 状态不一致：原代码跳出 loop 后设 stopReason=max_tokens 但不更新 DB，DB 里留着错误的 end_turn。修复：loop 退出后显式调 `persistMsg` 写正确 stopReason；(3) 用户消息附件 block 缺少元数据：`buildUserBlocks` 只存 attachmentId，FileName/MimeType 为空，前端无法显示文件名和图标。修复：`buildUserBlocks` 变为 Service 方法，从 DB 查附件完整信息再构建 block。22 包测试全绿。|
+| 2026-04-27 | **[refactor] 代码清理**：(1) 删除 `app/agent/summarizable.go` 整个文件——`Summarizable` 接口和 `CoreInfo` 方法在新架构下无任何实现者，`ExtractFallbackSummary` 在生产路径不再调用，全部死代码；(2) 消除 `blocksToLLMMessages`（pipeline.go）和 `buildAssistantLLMMessages`（history.go）重复逻辑，统一为 `blocksToAssistantLLM`（history.go），pipeline 直接调用；(3) 全局修正 S13 alias 违规：`agentpkg` → `agentapp`，所有 `domain/events` 无别名导入 → `eventsdomain`，`chatextract` → `chatinfra`，覆盖 main.go / chat/* / agent/forge.go / infra/events/memory / transport/httpapi/handlers+router 等所有文件。|
+| 2026-04-27 | **[fix] T15-T19 补丁**：T15：`forge.go` 新增 `msgIDKey` / `toolCallIDKey` context key + `WithMessageID` / `GetMessageID` / `WithToolCallID` / `GetToolCallID` 4 个 helper；`tools.go`（runOneTool）注入 msgID/toolCallID 到 ctx；`forge.go`（streamCode / CreateTool.Execute / EditTool.Execute）读取并填充 `ToolCodeStreaming` / `ToolCreated` / `ToolPendingCreated` 的 `MessageID` + `ToolCallID` 字段。T16：`app/tool/tool.go` `GenerateTestCases` 内部 struct 的 `Input`/`ExpectedOutput` 从 `string` 改为 `json.RawMessage`（LLM 返回的是 JSON object，不是 string，原代码 unmarshal 失败）。T17：新增 `extractJSONFromLLM` helper，先剥除 markdown code fence 再定位 `{}` / `[]` 边界，`GenerateTestCases` 在 unmarshal 前预处理。T18：`pipeline.go` `extractTextContent` 改为返回 **最后一个** text block（原返回第一个，多步 ReAct 时返回的是中间 preamble 而非最终答案，导致 auto-title 质量差）。T19：`main.go` 两处 `chatstore.New(gdb)` 提取为共享变量 `chatRepo`，避免创建两个独立 store 实例。|
+| 2026-04-27 | **[fix] 集成测试发现 4 个生产级 bug 并修复**：(Bug 1) `created_at=0001-01-01` on assistant messages：GORM `Save()` upsert 在 UPDATE 路径时把零值 `created_at` 写回 DB，导致 messages 列表顺序错乱（assistant 排在 user 前）。修复：`infra/store/chat/chat.go` 改用 `Clauses(clause.OnConflict{DoUpdates: AssignmentColumns(["status","stop_reason","input_tokens","output_tokens"])}).Create(m)`，`created_at` 永远只在首次 INSERT 写入，后续更新不覆盖。(Bug 2) 取消流后 assistant 消息丢失：`finalPersist` 用已被 cancel 的 ctx 调用 DB，SQLite 拒绝查询，助手消息丢失且推多余 `chat.error` 事件。修复：`finalPersist` 用 `reqctx.SetUserID(context.Background(), uid)` 创建全新 context，不受取消影响，终态 save 必然成功。(Bug 3) `web_search` 返回 null：`html.duckduckgo.com/html/` 现在对 Forgify 的 UA 返回首页而非搜索结果，HTML class 名不匹配导致解析无结果。修复：切换到 `lite.duckduckgo.com/lite/`（POST 表单），更新 `parseDDGLiteHTML` 匹配 `class="result-link"` / `class="result-snippet"` 新结构，旧函数 `isResultDiv` / `extractResult` 同时删除。(Bug 4) 快速连发消息时第二条看不到第一条的回复：`buildLLMHistory` 按 `created_at ASC` 加载全部消息，第二条 user 消息（T2）在 created_at 上早于第一条 assistant 消息（T3），LLM 收到 `[user1, user2, assistant1]` 历史、末尾是 assistant，无法判断该回复谁。修复：`queuedTask` 新增 `userMsgID` 字段；`buildLLMHistory` 接受 `currentUserMsgID` 参数，扫描时跳过该消息、单独追加到末尾，保证 LLM 永远看到"…历史… → 当前 user 消息"结构。|
+| 2026-04-27 | **[test] 集成测试 13 组全通（真实 DeepSeek API sk-2bcd...）**：A. Conversation CRUD（创建/列表/改名/删除）；B. API Key & Model Config（列表/更新/幂等/校验）；C. 分页 cursor 两页验证；D. 系统工具 run_shell / run_python / write_file+read_file；E. list_dir / fetch_url 实测；F. 并行 tool call（2 工具同一步，SSE 2 个 tool_call_start + 2 个 tool_result）；G. 多步 ReAct（write→read→python 3 步全在 1 条 assistant 消息，8 blocks）；H. Attachment 上传 + 内联传 LLM（LLM 直接识别文件内容，0 tool call）；I. 错误处理（无 API key → SSE chat.error；队列满 → HTTP 409）；J. Auto-title（对话命名 SSE 推送 + DB autoTitled=true）；K. 含 tool_call blocks 的多轮历史重建（Turn2 正确读取 Turn1 的 md5 结果）；L. SSE 事件 messageId 一致性（全程唯一 + 与 DB 对齐）；M. Forge 工具（create_tool 代码流式生成 + tool.created SSE；search→get→run add_numbers(17,25)=42）。服务器日志：1 个预期 ERROR（I1 故意触发）+ 3 个预期 WARN，无意外。|
+
 ---
 
 ## 3. Phase 2 完成交付清单 ✅
@@ -172,7 +192,7 @@ forge（纯 AST）+ attachment（上传/解析）+ tool（最大最复杂 domain
 
 ### Phase 4：工作流能力（~20h，最大一块）
 
-workflow（DAG + 状态机）+ flowrun（执行实例）+ 节点系统（LLM / Tool / Trigger / Approval / Variable 5 类）+ scheduler（cron / fsnotify / HTTP webhook）+ chat 再升级支持"对话创建工作流"。底层用 `eino/compose` Graph 构建执行引擎。
+workflow（DAG + 状态机）+ flowrun（执行实例）+ 节点系统（LLM / Tool / Trigger / Approval / Variable 5 类）+ scheduler（cron / fsnotify / HTTP webhook）+ chat 再升级支持"对话创建工作流"。执行引擎自实现（Eino 已全面移除，不再依赖 eino/compose）。
 
 ### Phase 5：智能化（~15h）
 

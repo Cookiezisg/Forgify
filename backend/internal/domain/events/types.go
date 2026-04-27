@@ -48,9 +48,28 @@ type ChatReasoningToken struct {
 // EventName 返回 "chat.reasoning_token"。
 func (ChatReasoningToken) EventName() string { return "chat.reasoning_token" }
 
+// ChatToolCallStart fires as soon as the LLM names a tool in its streaming
+// output — before arguments are complete. Lets the frontend show "calling X…"
+// immediately without waiting for the full tool call.
+//
+// ChatToolCallStart 在 LLM 流式输出中首次出现 tool name 时立刻触发——
+// 此时 arguments 尚未完整，让前端无需等待即可立刻显示"正在调用 X…"。
+type ChatToolCallStart struct {
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`
+	ToolCallID     string `json:"toolCallId"`
+	ToolName       string `json:"toolName"`
+}
+
+// EventName returns "chat.tool_call_start".
+// EventName 返回 "chat.tool_call_start"。
+func (ChatToolCallStart) EventName() string { return "chat.tool_call_start" }
+
 // ChatToolCall fires when the Agent decides to call a system tool.
+// Arguments are complete and stripped of "summary" at this point.
 //
 // ChatToolCall 在 Agent 决定调用某个 system tool 时触发。
+// 此时 arguments 已完整，且已剥除 "summary" 字段。
 type ChatToolCall struct {
 	ConversationID string `json:"conversationId"`
 	MessageID      string `json:"messageId"`
@@ -86,8 +105,9 @@ func (ChatToolResult) EventName() string { return "chat.tool_result" }
 type ChatDone struct {
 	ConversationID string `json:"conversationId"`
 	MessageID      string `json:"messageId"`
-	StopReason     string `json:"stopReason"`           // end_turn | max_tokens | cancelled | error
-	TokenUsage     string `json:"tokenUsage,omitempty"` // JSON: {inputTokens,outputTokens,cacheReadTokens}
+	StopReason     string `json:"stopReason"` // end_turn | max_tokens | cancelled | error
+	InputTokens    int    `json:"inputTokens"`
+	OutputTokens   int    `json:"outputTokens"`
 }
 
 // EventName returns "chat.done".

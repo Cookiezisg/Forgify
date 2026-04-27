@@ -9,7 +9,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,7 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
-	"github.com/cloudwego/eino/components/tool"
+	agentapp "github.com/sunweilin/forgify/backend/internal/app/agent"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 )
 
@@ -35,7 +34,7 @@ type DevHandler struct {
 	collectionsDir string
 	integrationDir string
 	port           int
-	tools          []tool.BaseTool
+	tools          []agentapp.Tool
 	log            *zap.Logger
 }
 
@@ -47,7 +46,7 @@ func NewDevHandler(
 	broadcaster *logger.LogBroadcaster,
 	collectionsDir, integrationDir string,
 	port int,
-	tools []tool.BaseTool,
+	tools []agentapp.Tool,
 	log *zap.Logger,
 ) *DevHandler {
 	return &DevHandler{
@@ -311,14 +310,9 @@ type devToolSummary struct {
 // ListTools 返回注册到 agent 的每个 system tool 的名称和描述，
 // 供 testend invoke 面板填充下拉列表。
 func (h *DevHandler) ListTools(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	out := make([]devToolSummary, 0, len(h.tools))
 	for _, t := range h.tools {
-		info, err := t.Info(ctx)
-		if err != nil {
-			continue
-		}
-		out = append(out, devToolSummary{Name: info.Name, Desc: info.Desc})
+		out = append(out, devToolSummary{Name: t.Name(), Desc: t.Description()})
 	}
 	writeDevJSON(w, http.StatusOK, out)
 }
@@ -335,12 +329,6 @@ type invokeResponse struct {
 	OK        bool   `json:"ok"`
 	ElapsedMs int64  `json:"elapsedMs"`
 	Error     string `json:"error,omitempty"`
-}
-
-// invokable matches tool.InvokableTool without importing the concrete type,
-// allowing a safe type assertion on tool.BaseTool values.
-type invokable interface {
-	InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error)
 }
 
 // InvokeTool directly runs a named system tool with caller-supplied JSON args.
@@ -363,16 +351,10 @@ func (h *DevHandler) InvokeTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	var target invokable
+	var target agentapp.Tool
 	for _, t := range h.tools {
-		info, err := t.Info(ctx)
-		if err != nil {
-			continue
-		}
-		if info.Name == req.Tool {
-			if inv, ok := t.(invokable); ok {
-				target = inv
-			}
+		if t.Name() == req.Tool {
+			target = t
 			break
 		}
 	}
@@ -382,7 +364,7 @@ func (h *DevHandler) InvokeTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := target.InvokableRun(ctx, req.Args)
+	output, err := target.Execute(ctx, req.Args)
 	elapsed := time.Since(start).Milliseconds()
 
 	if err != nil {

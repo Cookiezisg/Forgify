@@ -1,53 +1,38 @@
+// pipeline.go — Queue management and the ReAct loop.
+// One worker goroutine per conversation drains tasks sequentially.
+//
+// DB persistence contract:
+//   - Intermediate steps: saved with status=streaming (skipped by buildLLMHistory)
+//   - Final step: saved with status=completed/cancelled/error + correct stopReason
+//   - All blocks from all steps accumulate into ONE assistant message (assistantMsgID)
+//
+// pipeline.go — 队列管理和 ReAct loop。
+//
+// DB 持久化约定：
+//   - 中间步骤：status=streaming 保存（buildLLMHistory 会跳过）
+//   - 最终步骤：status=completed/cancelled/error + 正确的 stopReason 一次性保存
+//   - 所有步骤的 blocks 累积在同一条 assistant 消息（assistantMsgID）中
 package chat
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/components/tool"
-	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 
-	agentpkg "github.com/sunweilin/forgify/backend/internal/app/agent"
+	agentapp "github.com/sunweilin/forgify/backend/internal/app/agent"
 	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
-	"github.com/sunweilin/forgify/backend/internal/domain/events"
-	chatextract "github.com/sunweilin/forgify/backend/internal/infra/chat"
-	einoinfra "github.com/sunweilin/forgify/backend/internal/infra/eino"
+	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
+	llminfra "github.com/sunweilin/forgify/backend/internal/infra/llm"
 	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
-// invokable is the execution interface required to run a tool.
-//
-// invokable 是执行 tool 所需的接口。
-type invokable interface {
-	InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error)
-}
-
-// tcAccum accumulates streaming ToolCall fragments for one tool call position.
-// OpenAI-style streaming splits a single ToolCall across many chunks; each
-// chunk carries a fragment keyed by Index.
-//
-// tcAccum 用于累积一个 tool call 位置的流式 ToolCall 片段。
-// OpenAI 风格流式传输把单个 ToolCall 拆成多个带 Index 的片段。
-type tcAccum struct {
-	id   string
-	name string
-	args strings.Builder
-}
-
 // ── Queue / worker ────────────────────────────────────────────────────────────
 
-// getOrCreateQueue returns the convQueue for conversationID, creating a new one
-// with a worker goroutine if none exists.
-//
-// getOrCreateQueue 返回 conversationID 对应的 convQueue，不存在则创建并启动 worker goroutine。
 func (s *Service) getOrCreateQueue(conversationID string) *convQueue {
 	q := &convQueue{ch: make(chan queuedTask, queueCapacity)}
 	actual, loaded := s.queues.LoadOrStore(conversationID, q)
@@ -65,7 +50,6 @@ func (s *Service) runQueue(conversationID string, q *convQueue) {
 		timer.Stop()
 		s.queues.Delete(conversationID)
 	}()
-
 	for {
 		select {
 		case task := <-q.ch:
@@ -90,7 +74,6 @@ func (s *Service) processTask(conversationID string, q *convQueue, task queuedTa
 	conv := task.conv
 	uid := task.uid
 
-	// 1. Resolve model + credentials.
 	provider, modelID, err := s.modelPicker.PickForChat(ctx)
 	if err != nil {
 		s.publishError(ctx, conversationID, "MODEL_NOT_CONFIGURED", err.Error())
@@ -101,9 +84,7 @@ func (s *Service) processTask(conversationID string, q *convQueue, task queuedTa
 		s.publishError(ctx, conversationID, "API_KEY_PROVIDER_NOT_FOUND", err.Error())
 		return
 	}
-
-	// 2. Build LLM model.
-	built, err := s.modelFactory.Build(ctx, einoinfra.ModelConfig{
+	client, baseURL, err := s.llmFactory.Build(llminfra.Config{
 		Provider: provider, ModelID: modelID,
 		Key: creds.Key, BaseURL: creds.BaseURL,
 	})
@@ -112,29 +93,14 @@ func (s *Service) processTask(conversationID string, q *convQueue, task queuedTa
 		return
 	}
 
-	// 3. Bind tools to a fresh model instance (WithTools is safe; no mutation).
-	// 把 tools 绑定到新的 model 实例（WithTools 返回新实例，无竞争）。
-	toolInfos := collectToolInfos(ctx, s.tools)
-	activeModel, err := built.Model.WithTools(toolInfos)
-	if err != nil {
-		s.publishError(ctx, conversationID, "LLM_PROVIDER_ERROR", err.Error())
-		return
-	}
-
-	// 4. Load conversation history.
-	history, err := s.buildEinoMessages(ctx, conversationID, provider)
+	history, err := s.buildLLMHistory(ctx, conversationID, task.userMsgID)
 	if err != nil {
 		s.publishError(ctx, conversationID, "INTERNAL_ERROR", err.Error())
 		return
 	}
 
-	// 5. Pre-generate the final assistant message ID for SSE correlation.
-	//    The message is written to DB only when the final response arrives.
-	//
-	//    预生成 assistant 消息 ID，只有最终响应到达时才写入 DB。
 	assistantMsgID := newMsgID()
 
-	// 6. Cancellable context.
 	agentCtx, cancel := context.WithCancel(ctx)
 	q.mu.Lock()
 	q.cancel = cancel
@@ -146,34 +112,32 @@ func (s *Service) processTask(conversationID string, q *convQueue, task queuedTa
 		q.mu.Unlock()
 	}()
 
-	agentCtx = agentpkg.WithConversationID(agentCtx, conversationID)
+	agentCtx = agentapp.WithConversationID(agentCtx, conversationID)
 
-	// 7. Run our own ReAct loop — no black-box agent, full control over every step.
-	// 运行我们自己的 ReAct loop——不使用黑盒 agent，完全掌控每一步。
-	systemMsg := schema.SystemMessage(s.buildSystemPrompt(agentCtx, conv))
-	finalContent, stopReason, tokenUsage := s.runReactLoop(
-		agentCtx,
-		activeModel,
-		systemMsg,
-		history,
-		conversationID,
-		assistantMsgID,
-		uid,
+	baseReq := llminfra.Request{
+		ModelID: modelID,
+		Key:     creds.Key,
+		BaseURL: baseURL,
+		System:  s.buildSystemPrompt(agentCtx, conv),
+		Tools:   agentapp.ToLLMDefs(s.tools),
+	}
+
+	finalContent, stopReason, inputTokens, outputTokens := s.runReactLoop(
+		agentCtx, client, baseReq, history, conversationID, assistantMsgID, uid,
 	)
 
-	// 8. Publish chat.done.
-	s.bridge.Publish(agentCtx, conversationID, events.ChatDone{
+	s.bridge.Publish(agentCtx, conversationID, eventsdomain.ChatDone{
 		ConversationID: conversationID,
 		MessageID:      assistantMsgID,
 		StopReason:     stopReason,
-		TokenUsage:     tokenUsage,
+		InputTokens:    inputTokens,
+		OutputTokens:   outputTokens,
 	})
 
 	s.log.Info("chat task done",
 		zap.String("conversation_id", conversationID),
 		zap.String("stop_reason", stopReason))
 
-	// 9. Auto-title after first exchange.
 	if conv.Title == "" && !conv.AutoTitled {
 		go s.autoTitle(context.Background(), conv, uid, finalContent)
 	}
@@ -181,492 +145,226 @@ func (s *Service) processTask(conversationID string, q *convQueue, task queuedTa
 
 // ── ReAct loop ────────────────────────────────────────────────────────────────
 
-// runReactLoop drives the full ReAct (Reasoning + Acting) conversation loop.
-// It calls the LLM, streams tokens to the frontend, executes any tool calls,
-// and repeats until the LLM produces a final text response or the step limit
-// is reached. All SSE events and DB writes happen inside this function.
+// runReactLoop drives the ReAct (Reasoning + Acting) cycle. It accumulates
+// all blocks from every step into a single assistant message (assistantMsgID)
+// so the full tool-call history is preserved in one DB row per user turn.
+// DB is written after every step: streaming during tool steps, final status last.
 //
-// runReactLoop 驱动完整的 ReAct 对话循环。
-// 调用 LLM、把 token 流式推给前端、执行 tool call，循环直到 LLM 给出
-// 最终文字回复或达到步骤上限。所有 SSE 事件和 DB 写入均在此函数内完成。
+// runReactLoop 驱动 ReAct 循环。所有步骤的 blocks 累积到同一条 assistant 消息中
+// （assistantMsgID），保证一次用户发言对应一条完整的 DB 记录。
+// 每步写 DB：工具调用中间步骤写 streaming，最后一步写最终状态。
 func (s *Service) runReactLoop(
 	ctx context.Context,
-	m model.ToolCallingChatModel,
-	systemMsg *schema.Message,
-	history []*schema.Message,
+	client llminfra.Client,
+	baseReq llminfra.Request,
+	history []llminfra.LLMMessage,
 	convID, assistantMsgID, uid string,
-) (finalContent, stopReason, tokenUsage string) {
+) (finalContent, stopReason string, inputTokens, outputTokens int) {
 	stopReason = chatdomain.StopReasonEndTurn
+	current := make([]llminfra.LLMMessage, len(history))
+	copy(current, history)
 
-	// currentMessages holds the growing conversation for this turn.
-	// systemMsg is prepended on every LLM call (not stored in DB history).
-	// currentMessages 保存本轮对话增量；systemMsg 每次 LLM 调用前插入，不入 DB 历史。
-	currentMessages := make([]*schema.Message, len(history))
-	copy(currentMessages, history)
+	var allBlocks []chatdomain.Block // accumulates blocks from every step
 
 	const maxSteps = 20
 	for step := 0; step < maxSteps; step++ {
-		// Prepend system prompt for every LLM call.
-		// 每次 LLM 调用前插入 system prompt。
-		callMsgs := append([]*schema.Message{systemMsg}, currentMessages...)
+		req := baseReq
+		req.Messages = current
 
-		sr, err := m.Stream(ctx, callMsgs)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				stopReason = chatdomain.StopReasonCancelled
-			} else {
-				stopReason = chatdomain.StopReasonError
-				s.publishError(ctx, convID, "LLM_PROVIDER_ERROR", err.Error())
+		stepBlocks, hasToolCalls, sr, iT, oT := s.runStep(ctx, client, req, convID, assistantMsgID)
+		allBlocks = append(allBlocks, stepBlocks...)
+		inputTokens += iT
+		outputTokens += oT
+		if sr != "" {
+			stopReason = sr
+		}
+
+		switch {
+		case stopReason == chatdomain.StopReasonCancelled:
+			s.finalPersist(ctx, assistantMsgID, convID, uid, allBlocks,
+				chatdomain.StatusCancelled, stopReason, inputTokens, outputTokens)
+			finalContent = extractTextContent(allBlocks)
+			return
+
+		case stopReason == chatdomain.StopReasonError:
+			s.finalPersist(ctx, assistantMsgID, convID, uid, allBlocks,
+				chatdomain.StatusError, stopReason, inputTokens, outputTokens)
+			finalContent = extractTextContent(allBlocks)
+			return
+
+		case !hasToolCalls:
+			// Final response — write completed status with correct stopReason.
+			// 最终回复——写 completed 状态和正确的 stopReason。
+			s.finalPersist(ctx, assistantMsgID, convID, uid, allBlocks,
+				chatdomain.StatusCompleted, stopReason, inputTokens, outputTokens)
+			finalContent = extractTextContent(allBlocks)
+			return
+
+		default:
+			// Intermediate tool-calling step — persist streaming state so the DB
+			// reflects current progress; buildLLMHistory skips streaming messages.
+			// Failure here is non-fatal: the final persist will overwrite anyway.
+			//
+			// 中间 tool call 步骤——写 streaming 状态反映当前进度。
+			// 此处失败非致命：最终 persist 会覆盖。
+			if err := s.persistMsg(ctx, assistantMsgID, convID, uid, allBlocks,
+				chatdomain.StatusStreaming, "", inputTokens, outputTokens); err != nil {
+				s.log.Warn("intermediate persist failed, continuing",
+					zap.String("msg_id", assistantMsgID), zap.Error(err))
 			}
-			s.saveTerminalMessage(ctx, assistantMsgID, convID, uid, "", stopReason)
-			return finalContent, stopReason, ""
+
+			// Add this step's contribution to the LLM history for the next call.
+			// 把本步贡献加入 LLM 历史，供下一次调用使用。
+			stepMsgs, err := blocksToAssistantLLM(stepBlocks)
+			if err != nil {
+				s.log.Error("history reconstruction failed mid-loop, aborting",
+					zap.String("conversation_id", convID), zap.Error(err))
+				stopReason = chatdomain.StopReasonError
+				s.finalPersist(ctx, assistantMsgID, convID, uid, allBlocks,
+					chatdomain.StatusError, stopReason, inputTokens, outputTokens)
+				return
+			}
+			current = append(current, stepMsgs...)
 		}
-
-		// Read the stream: push tokens + assemble the full message.
-		// 读流：推 token + 组装完整消息。
-		response, sr_stop, usage := s.collectStream(ctx, sr, convID, assistantMsgID)
-		sr.Close()
-
-		if sr_stop != "" {
-			stopReason = sr_stop
-		}
-
-		// Append the response to history for the next LLM call.
-		// 追加响应到历史，供下次 LLM 调用使用。
-		currentMessages = append(currentMessages, response)
-
-		if len(response.ToolCalls) == 0 {
-			// Final response — save to DB and return.
-			// 最终响应——写 DB 并返回。
-			finalContent = response.Content
-			tokenUsage = usage
-			s.saveFinalMessage(ctx, assistantMsgID, convID, uid, response, stopReason, usage)
-			return finalContent, stopReason, tokenUsage
-		}
-
-		// Intermediate response: save + execute all tool calls.
-		// 中间响应：保存 assistant 消息，执行全部 tool calls。
-		s.saveIntermediateMessage(ctx, convID, uid, response)
-		toolMsgs := s.runToolCalls(ctx, response.ToolCalls, convID, assistantMsgID, uid)
-		currentMessages = append(currentMessages, toolMsgs...)
 	}
 
-	// Reached step limit without a final text response.
-	// 达到步骤上限仍未收到最终文字响应。
+	// Reached step limit — save with max_tokens stopReason (fixes the DB mismatch).
+	// 达到步骤上限——用 max_tokens 保存（修复 DB 状态不一致问题）。
 	stopReason = chatdomain.StopReasonMaxTokens
-	s.saveTerminalMessage(ctx, assistantMsgID, convID, uid, finalContent, stopReason)
-	return finalContent, stopReason, tokenUsage
+	s.finalPersist(ctx, assistantMsgID, convID, uid, allBlocks,
+		chatdomain.StatusCompleted, stopReason, inputTokens, outputTokens)
+	finalContent = extractTextContent(allBlocks)
+	return
 }
 
-// runToolCalls executes each tool call in tc, publishes SSE events, writes
-// tool-result messages to DB, and returns the tool messages for the next
-// LLM turn.
+// runStep executes one LLM call and any resulting tool calls.
+// It does NOT write to the database — all persistence is managed by runReactLoop.
+// Returns the blocks produced in this step and whether tool calls were made.
 //
-// runToolCalls 执行 tc 中的每个 tool call，推 SSE 事件，把 tool-result
-// 消息写入 DB，并返回供下一轮 LLM 使用的 tool 消息列表。
-func (s *Service) runToolCalls(
+// runStep 执行一次 LLM 调用及其产生的 tool call。
+// 不写 DB——所有持久化由 runReactLoop 统一管理。
+// 返回本步产生的 blocks 和是否有 tool call。
+func (s *Service) runStep(
 	ctx context.Context,
-	toolCalls []schema.ToolCall,
-	convID, assistantMsgID, uid string,
-) []*schema.Message {
-	msgs := make([]*schema.Message, 0, len(toolCalls))
-	for _, tc := range toolCalls {
-		s.bridge.Publish(ctx, convID, events.ChatToolCall{
-			ConversationID: convID,
-			MessageID:      assistantMsgID,
-			ToolCallID:     tc.ID,
-			ToolName:       tc.Function.Name,
-			ToolInput:      tc.Function.Arguments,
-			Summary:        s.toolSummary(tc.Function.Name, tc.Function.Arguments),
-		})
-
-		result, ok := s.executeTool(ctx, tc)
-
-		s.bridge.Publish(ctx, convID, events.ChatToolResult{
-			ConversationID: convID,
-			ToolCallID:     tc.ID,
-			Result:         result,
-			OK:             ok,
-		})
-
-		if err := s.repo.Save(ctx, &chatdomain.Message{
-			ID:             newMsgID(),
-			ConversationID: convID,
-			UserID:         uid,
-			Role:           chatdomain.RoleTool,
-			Content:        result,
-			ToolCallID:     tc.ID,
-			Status:         chatdomain.StatusCompleted,
-		}); err != nil {
-			s.log.Warn("save tool result message failed",
-				zap.String("tool", tc.Function.Name), zap.Error(err))
-		}
-
-		msgs = append(msgs, &schema.Message{
-			Role:       schema.Tool,
-			Content:    result,
-			ToolCallID: tc.ID,
-		})
-	}
-	return msgs
-}
-
-// collectStream reads one LLM streaming response to completion.
-// It pushes chat.token SSE events as tokens arrive and assembles the full
-// schema.Message (including ToolCall fragments) before returning.
-//
-// collectStream 读完一次 LLM 流式响应。
-// 边读边推 chat.token SSE，并在返回前组装完整的 schema.Message（含 ToolCall 片段）。
-func (s *Service) collectStream(
-	ctx context.Context,
-	sr *schema.StreamReader[*schema.Message],
+	client llminfra.Client,
+	req llminfra.Request,
 	convID, assistantMsgID string,
-) (msg *schema.Message, stopReason, tokenUsageJSON string) {
-	var contentBuf strings.Builder
-	var reasoningBuf strings.Builder // reasoning_content must be echoed back to APIs that require it
-	accums := map[int]*tcAccum{}
-	var finishReason string
-	var usage *schema.TokenUsage
+) (blocks []chatdomain.Block, hasToolCalls bool, stopReason string, inputTokens, outputTokens int) {
+	assistantBlocks, stopReason, inputTokens, outputTokens := s.consumeStream(
+		ctx, client.Stream(ctx, req), convID, assistantMsgID,
+	)
 
-	for {
-		chunk, err := sr.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				stopReason = chatdomain.StopReasonCancelled
-			} else {
-				stopReason = chatdomain.StopReasonError
-			}
-			break
-		}
-		if chunk == nil {
-			continue
-		}
-
-		// Stream reasoning tokens and accumulate for history echo-back.
-		// Thinking-mode APIs (e.g. DeepSeek-R1) require the full reasoning_content
-		// to be passed back unchanged in subsequent requests.
-		//
-		// 推送 reasoning token 并累积，用于历史回传。
-		// Thinking 模式 API（如 DeepSeek-R1）要求后续请求原样带上 reasoning_content。
-		if chunk.ReasoningContent != "" {
-			reasoningBuf.WriteString(chunk.ReasoningContent)
-			s.bridge.Publish(ctx, convID, events.ChatReasoningToken{
-				ConversationID: convID,
-				MessageID:      assistantMsgID,
-				Delta:          chunk.ReasoningContent,
-			})
-		}
-
-		// Stream text tokens to the frontend immediately.
-		// 立即把文字 token 流式推送给前端。
-		if chunk.Content != "" {
-			contentBuf.WriteString(chunk.Content)
-			s.bridge.Publish(ctx, convID, events.ChatToken{
-				ConversationID: convID,
-				MessageID:      assistantMsgID,
-				Delta:          chunk.Content,
-			})
-		}
-
-		// Accumulate streaming ToolCall fragments by Index.
-		// 按 Index 累积流式 ToolCall 片段。
-		for _, tc := range chunk.ToolCalls {
-			idx := 0
-			if tc.Index != nil {
-				idx = *tc.Index
-			}
-			a := accums[idx]
-			if a == nil {
-				a = &tcAccum{}
-				accums[idx] = a
-			}
-			if tc.ID != "" {
-				a.id = tc.ID
-			}
-			if tc.Function.Name != "" {
-				a.name = tc.Function.Name
-			}
-			a.args.WriteString(tc.Function.Arguments)
-		}
-
-		if chunk.ResponseMeta != nil {
-			if r := chunk.ResponseMeta.FinishReason; r != "" {
-				finishReason = r
-			}
-			if u := chunk.ResponseMeta.Usage; u != nil {
-				usage = u
-			}
-		}
+	if stopReason == chatdomain.StopReasonCancelled || stopReason == chatdomain.StopReasonError {
+		return assistantBlocks, false, stopReason, inputTokens, outputTokens
 	}
 
-	if finishReason == "length" {
-		stopReason = chatdomain.StopReasonMaxTokens
+	toolCalls := collectToolCalls(assistantBlocks)
+	if len(toolCalls) == 0 {
+		return assistantBlocks, false, stopReason, inputTokens, outputTokens
 	}
 
-	if usage != nil {
-		b, _ := json.Marshal(struct {
-			InputTokens  int `json:"inputTokens"`
-			OutputTokens int `json:"outputTokens"`
-		}{
-			InputTokens:  usage.PromptTokens,
-			OutputTokens: usage.CompletionTokens,
-		})
-		tokenUsageJSON = string(b)
-	}
-
-	msg = &schema.Message{
-		Role:             schema.Assistant,
-		Content:          contentBuf.String(),
-		ReasoningContent: reasoningBuf.String(),
-		ToolCalls:        assembleToolCalls(accums),
-	}
-	return msg, stopReason, tokenUsageJSON
+	resultBlocks := s.executeToolCalls(ctx, toolCalls, convID, assistantMsgID)
+	return append(assistantBlocks, resultBlocks...), true, stopReason, inputTokens, outputTokens
 }
 
-// executeTool finds the named tool in s.tools and calls InvokableRun.
-// Returns the output string and whether execution succeeded.
+// persistMsg writes the assistant message to the DB and returns any error.
+// Used for intermediate streaming saves where failure is non-fatal.
 //
-// executeTool 在 s.tools 里查找指定 tool 并调用 InvokableRun。
-// 返回输出字符串和执行是否成功。
-func (s *Service) executeTool(ctx context.Context, tc schema.ToolCall) (result string, ok bool) {
-	name := tc.Function.Name
-	args := tc.Function.Arguments
-
-	for _, t := range s.tools {
-		info, err := t.Info(ctx)
-		if err != nil || info.Name != name {
-			continue
-		}
-		inv, canInvoke := t.(invokable)
-		if !canInvoke {
-			return fmt.Sprintf("tool %q is not executable", name), false
-		}
-		output, err := inv.InvokableRun(ctx, args)
-		if err != nil {
-			result = err.Error()
-			if output != "" {
-				result = output
-			}
-			return result, false
-		}
-		return output, true
-	}
-	return fmt.Sprintf("tool %q not found", name), false
-}
-
-// toolSummary returns a human-readable one-liner for a tool call.
-//
-// toolSummary 返回 tool 调用的人类可读一句话摘要。
-func (s *Service) toolSummary(toolName, argsJSON string) string {
-	for _, t := range s.tools {
-		info, err := t.Info(context.Background())
-		if err != nil || info.Name != toolName {
-			continue
-		}
-		if sum, ok := t.(agentpkg.Summarizable); ok {
-			return sum.CoreInfo(argsJSON)
-		}
-		break
-	}
-	return agentpkg.ExtractFallbackSummary(argsJSON)
-}
-
-// ── DB helpers ────────────────────────────────────────────────────────────────
-
-func (s *Service) saveFinalMessage(
+// persistMsg 把 assistant 消息写入 DB，返回错误。用于中间 streaming 保存，失败非致命。
+func (s *Service) persistMsg(
 	ctx context.Context,
-	id, convID, uid string,
-	msg *schema.Message,
-	stopReason, tokenUsage string,
-) {
-	if err := s.repo.Save(ctx, &chatdomain.Message{
-		ID:               id,
-		ConversationID:   convID,
-		UserID:           uid,
-		Role:             chatdomain.RoleAssistant,
-		Content:          msg.Content,
-		ReasoningContent: msg.ReasoningContent,
-		Status:           chatdomain.StatusCompleted,
-		StopReason:       stopReason,
-		TokenUsage:       tokenUsage,
-	}); err != nil {
-		s.log.Error("save final assistant message failed", zap.Error(err))
+	msgID, convID, uid string,
+	blocks []chatdomain.Block,
+	status, stopReason string,
+	inputTokens, outputTokens int,
+) error {
+	stamped := make([]chatdomain.Block, len(blocks))
+	copy(stamped, blocks)
+	for i := range stamped {
+		stamped[i].MessageID = msgID
+		stamped[i].Seq = i // global seq across all steps; per-step values would collide
+		if stamped[i].ID == "" {
+			stamped[i].ID = newBlockID()
+		}
 	}
-}
-
-func (s *Service) saveIntermediateMessage(ctx context.Context, convID, uid string, msg *schema.Message) {
-	tcJSON, _ := json.Marshal(msg.ToolCalls)
-	if err := s.repo.Save(ctx, &chatdomain.Message{
-		ID:               newMsgID(),
-		ConversationID:   convID,
-		UserID:           uid,
-		Role:             chatdomain.RoleAssistant,
-		Content:          msg.Content,
-		ReasoningContent: msg.ReasoningContent,
-		ToolCalls:        string(tcJSON),
-		Status:           chatdomain.StatusCompleted,
-	}); err != nil {
-		s.log.Warn("save intermediate assistant message failed", zap.Error(err))
-	}
-}
-
-// saveTerminalMessage saves a cancelled or error assistant message when the
-// loop exits before producing a final response.
-//
-// saveTerminalMessage 在 loop 未产生最终响应就退出时，保存 cancelled/error 消息。
-func (s *Service) saveTerminalMessage(ctx context.Context, id, convID, uid, content, stopReason string) {
-	status := chatdomain.StatusError
-	if stopReason == chatdomain.StopReasonCancelled {
-		status = chatdomain.StatusCancelled
-	}
-	_ = s.repo.Save(ctx, &chatdomain.Message{
-		ID:             id,
+	msg := &chatdomain.Message{
+		ID:             msgID,
 		ConversationID: convID,
 		UserID:         uid,
 		Role:           chatdomain.RoleAssistant,
-		Content:        content,
 		Status:         status,
 		StopReason:     stopReason,
-	})
+		InputTokens:    inputTokens,
+		OutputTokens:   outputTokens,
+		Blocks:         stamped,
+	}
+	if err := s.repo.Save(ctx, msg); err != nil {
+		return fmt.Errorf("persistMsg: %w", err)
+	}
+	return nil
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-
-// collectToolInfos extracts schema.ToolInfo from every BaseTool.
+// finalPersist is used for the terminal save (completed/cancelled/error).
+// On failure it publishes ChatError so the frontend knows the message was not persisted,
+// and logs the error as critical.
 //
-// collectToolInfos 从每个 BaseTool 中提取 schema.ToolInfo。
-func collectToolInfos(ctx context.Context, tools []tool.BaseTool) []*schema.ToolInfo {
-	infos := make([]*schema.ToolInfo, 0, len(tools))
-	for _, t := range tools {
-		info, err := t.Info(ctx)
-		if err != nil {
+// finalPersist 用于最终保存（completed/cancelled/error）。
+// 失败时推 ChatError SSE 告知前端消息未落地，并记录为 critical 错误。
+func (s *Service) finalPersist(
+	ctx context.Context,
+	msgID, convID, uid string,
+	blocks []chatdomain.Block,
+	status, stopReason string,
+	inputTokens, outputTokens int,
+) {
+	// Use a fresh context so a cancelled stream does not prevent the terminal
+	// DB write. The user ID must be preserved for the store's scoping query.
+	// 用新 context 避免已取消的流阻止终态 DB 写入；需保留 user ID 供 store 过滤。
+	saveCtx := reqctx.SetUserID(context.Background(), uid)
+	if err := s.persistMsg(saveCtx, msgID, convID, uid, blocks, status, stopReason, inputTokens, outputTokens); err != nil {
+		s.log.Error("CRITICAL: final assistant message persist failed — message lost",
+			zap.String("msg_id", msgID),
+			zap.String("conversation_id", convID),
+			zap.Error(err))
+		s.bridge.Publish(ctx, convID, eventsdomain.ChatError{
+			ConversationID: convID,
+			Code:           "INTERNAL_ERROR",
+			Message:        "failed to save assistant message to database",
+		})
+	}
+}
+
+// collectToolCalls extracts ToolCallData from tool_call blocks.
+//
+// collectToolCalls 从 tool_call blocks 中提取 ToolCallData。
+func collectToolCalls(blocks []chatdomain.Block) []chatdomain.ToolCallData {
+	var out []chatdomain.ToolCallData
+	for _, b := range blocks {
+		if b.Type != chatdomain.BlockTypeToolCall {
 			continue
 		}
-		infos = append(infos, info)
+		var d chatdomain.ToolCallData
+		if json.Unmarshal([]byte(b.Data), &d) == nil {
+			out = append(out, d)
+		}
 	}
-	return infos
+	return out
 }
 
-// assembleToolCalls converts the streaming fragment map into a properly
-// ordered []schema.ToolCall.
-//
-// assembleToolCalls 把流式片段 map 转成按序排列的 []schema.ToolCall。
-func assembleToolCalls(accums map[int]*tcAccum) []schema.ToolCall {
-	if len(accums) == 0 {
-		return nil
-	}
-	result := make([]schema.ToolCall, len(accums))
-	for idx, a := range accums {
-		if idx < len(result) {
-			result[idx] = schema.ToolCall{
-				ID:       a.id,
-				Function: schema.FunctionCall{Name: a.name, Arguments: a.args.String()},
+func extractTextContent(blocks []chatdomain.Block) string {
+	var last string
+	for _, b := range blocks {
+		if b.Type == chatdomain.BlockTypeText {
+			var d chatdomain.TextData
+			if json.Unmarshal([]byte(b.Data), &d) == nil {
+				last = d.Text
 			}
 		}
 	}
-	return result
+	return last
 }
 
-// ── Message building ──────────────────────────────────────────────────────────
-
-func (s *Service) buildEinoMessages(ctx context.Context, conversationID, provider string) ([]*schema.Message, error) {
-	rows, _, err := s.repo.ListByConversation(ctx, conversationID, chatdomain.ListFilter{Limit: 200})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*schema.Message, 0, len(rows))
-	for _, m := range rows {
-		msg, err := s.toEinoMessage(ctx, m, provider)
-		if err != nil {
-			return nil, err
-		}
-		if msg != nil {
-			out = append(out, msg)
-		}
-	}
-	return out, nil
-}
-
-func (s *Service) toEinoMessage(ctx context.Context, m *chatdomain.Message, provider string) (*schema.Message, error) {
-	if m.Status == chatdomain.StatusStreaming || m.Status == chatdomain.StatusPending {
-		return nil, nil
-	}
-	switch m.Role {
-	case chatdomain.RoleAssistant:
-		// Reconstruct the full assistant message including ReasoningContent and
-		// ToolCalls so the LLM has complete context on the next turn.
-		// Thinking-mode APIs (e.g. DeepSeek-R1) require ReasoningContent to be
-		// echoed back unchanged.
-		//
-		// 重建完整 assistant 消息，包含 ReasoningContent 和 ToolCalls，
-		// 保证下一轮 LLM 能看到完整上下文。
-		// Thinking 模式 API（如 DeepSeek-R1）要求原样回传 ReasoningContent。
-		msg := &schema.Message{
-			Role:             schema.Assistant,
-			Content:          m.Content,
-			ReasoningContent: m.ReasoningContent,
-		}
-		if m.ToolCalls != "" {
-			var toolCalls []schema.ToolCall
-			if err := json.Unmarshal([]byte(m.ToolCalls), &toolCalls); err == nil {
-				msg.ToolCalls = toolCalls
-			}
-		}
-		return msg, nil
-	case chatdomain.RoleTool:
-		return &schema.Message{
-			Role: schema.Tool, Content: m.Content, ToolCallID: m.ToolCallID,
-		}, nil
-	case chatdomain.RoleUser:
-		return s.buildUserMessage(ctx, m, provider)
-	}
-	return nil, nil
-}
-
-func (s *Service) buildUserMessage(ctx context.Context, m *chatdomain.Message, provider string) (*schema.Message, error) {
-	if m.AttachmentIDs == "" || m.AttachmentIDs == "[]" || m.AttachmentIDs == "null" {
-		return schema.UserMessage(m.Content), nil
-	}
-	var attIDs []string
-	if err := json.Unmarshal([]byte(m.AttachmentIDs), &attIDs); err != nil || len(attIDs) == 0 {
-		return schema.UserMessage(m.Content), nil
-	}
-
-	parts := []schema.MessageInputPart{{Type: schema.ChatMessagePartTypeText, Text: m.Content}}
-	for _, id := range attIDs {
-		att, err := s.repo.GetAttachment(ctx, id)
-		if err != nil {
-			continue
-		}
-		if chatextract.IsImage(att.MimeType) {
-			part, err := imageToInputPart(att, provider)
-			if err != nil {
-				s.log.Warn("vision not supported, skipping attachment",
-					zap.String("attachment_id", id), zap.String("provider", provider))
-				continue
-			}
-			parts = append(parts, part)
-		} else {
-			text, err := chatextract.Extract(att.StoragePath, att.MimeType)
-			if err != nil {
-				s.log.Warn("attachment extraction failed, skipping",
-					zap.String("attachment_id", id), zap.Error(err))
-				continue
-			}
-			parts = append(parts, schema.MessageInputPart{
-				Type: schema.ChatMessagePartTypeText,
-				Text: fmt.Sprintf("\n\n[附件: %s]\n%s", att.FileName, text),
-			})
-		}
-	}
-	if len(parts) == 1 {
-		return schema.UserMessage(m.Content), nil
-	}
-	return &schema.Message{Role: schema.User, UserInputMultiContent: parts}, nil
-}
+// ── System prompt & auto-title ────────────────────────────────────────────────
 
 func (s *Service) buildSystemPrompt(ctx context.Context, conv *convdomain.Conversation) string {
 	var sb strings.Builder
@@ -681,14 +379,6 @@ func (s *Service) buildSystemPrompt(ctx context.Context, conv *convdomain.Conver
 	return sb.String()
 }
 
-func (s *Service) publishError(ctx context.Context, conversationID, code, msg string) {
-	s.bridge.Publish(ctx, conversationID, events.ChatError{
-		ConversationID: conversationID, Code: code, Message: msg,
-	})
-	s.log.Error("chat error", zap.String("conversation_id", conversationID),
-		zap.String("code", code), zap.String("message", msg))
-}
-
 func (s *Service) autoTitle(ctx context.Context, conv *convdomain.Conversation, uid, assistantContent string) {
 	titleCtx := reqctx.SetUserID(ctx, uid)
 	provider, modelID, err := s.modelPicker.PickForChat(titleCtx)
@@ -699,7 +389,7 @@ func (s *Service) autoTitle(ctx context.Context, conv *convdomain.Conversation, 
 	if err != nil {
 		return
 	}
-	built, err := s.modelFactory.Build(titleCtx, einoinfra.ModelConfig{
+	client, baseURL, err := s.llmFactory.Build(llminfra.Config{
 		Provider: provider, ModelID: modelID, Key: creds.Key, BaseURL: creds.BaseURL,
 	})
 	if err != nil {
@@ -709,18 +399,18 @@ func (s *Service) autoTitle(ctx context.Context, conv *convdomain.Conversation, 
 	tCtx, cancel := context.WithTimeout(titleCtx, 10*time.Second)
 	defer cancel()
 
-	msgs := []*schema.Message{
-		schema.SystemMessage("Generate a short conversation title (5 words or fewer). Reply with ONLY the title, no punctuation.\n只返回标题本身，不超过 10 个字，不加标点。"),
-		schema.UserMessage("Assistant said: " + truncate(assistantContent, 300)),
+	req := llminfra.Request{
+		ModelID: modelID, Key: creds.Key, BaseURL: baseURL,
+		System: "Generate a short conversation title (5 words or fewer). Reply with ONLY the title, no punctuation.\n只返回标题本身，不超过 10 个字，不加标点。",
+		Messages: []llminfra.LLMMessage{
+			{Role: llminfra.RoleUser, Content: "Assistant said: " + truncate(assistantContent, 300)},
+		},
 	}
-	result, err := built.Model.Generate(tCtx, msgs)
-	if err != nil || result == nil {
+	title, err := llminfra.Generate(tCtx, client, req)
+	if err != nil || title == "" {
 		return
 	}
-	title := strings.TrimSpace(result.Content)
-	if title == "" {
-		return
-	}
+	title = strings.TrimSpace(title)
 
 	conv.Title = title
 	conv.AutoTitled = true
@@ -728,9 +418,18 @@ func (s *Service) autoTitle(ctx context.Context, conv *convdomain.Conversation, 
 		s.log.Warn("auto-title save failed", zap.Error(err))
 		return
 	}
-	s.bridge.Publish(titleCtx, conv.ID, events.ConversationTitleUpdated{
+	s.bridge.Publish(titleCtx, conv.ID, eventsdomain.ConversationTitleUpdated{
 		ConversationID: conv.ID, Title: title, AutoTitled: true,
 	})
 	s.log.Info("auto-title generated",
 		zap.String("conversation_id", conv.ID), zap.String("title", title))
+}
+
+func (s *Service) publishError(ctx context.Context, conversationID, code, msg string) {
+	s.bridge.Publish(ctx, conversationID, eventsdomain.ChatError{
+		ConversationID: conversationID, Code: code, Message: msg,
+	})
+	s.log.Error("chat error",
+		zap.String("conversation_id", conversationID),
+		zap.String("code", code), zap.String("message", msg))
 }

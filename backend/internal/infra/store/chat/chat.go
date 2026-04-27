@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
 	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
@@ -42,20 +43,54 @@ func userID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
-// Save inserts or updates a Message by primary key.
+// Save inserts or updates a Message and replaces its Blocks atomically.
+// If m.Blocks is non-empty, existing blocks for this message are deleted and
+// the new set is inserted within the same transaction.
 //
-// Save 按主键插入或更新 Message。
+// Uses an explicit ON CONFLICT upsert so that created_at is only written on
+// INSERT and never overwritten by subsequent status updates.
+//
+// Save 原子地插入或更新 Message，并替换其 Blocks。
+// 若 m.Blocks 非空，在同一事务中删除该消息的旧 blocks 并插入新集合。
+// 使用显式 ON CONFLICT upsert，保证 created_at 仅在首次 INSERT 时写入，
+// 后续状态更新不覆盖。
 func (s *Store) Save(ctx context.Context, m *chatdomain.Message) error {
-	if err := s.db.WithContext(ctx).Save(m).Error; err != nil {
-		return fmt.Errorf("chatstore.Save: %w", err)
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = time.Now().UTC()
 	}
-	return nil
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "id"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"status", "stop_reason", "input_tokens", "output_tokens",
+			}),
+		}).Create(m).Error
+		if err != nil {
+			return fmt.Errorf("chatstore.Save message: %w", err)
+		}
+		if len(m.Blocks) == 0 {
+			return nil
+		}
+		// Stamp MessageID on every block before insert.
+		// 插入前把 MessageID 打在每个 block 上。
+		for i := range m.Blocks {
+			m.Blocks[i].MessageID = m.ID
+		}
+		if err := tx.Where("message_id = ?", m.ID).
+			Delete(&chatdomain.Block{}).Error; err != nil {
+			return fmt.Errorf("chatstore.Save delete old blocks: %w", err)
+		}
+		if err := tx.Create(&m.Blocks).Error; err != nil {
+			return fmt.Errorf("chatstore.Save blocks: %w", err)
+		}
+		return nil
+	})
 }
 
 // Get fetches a single Message by id, scoped to the current user.
 // Returns ErrMessageNotFound if no live record matches.
 //
-// Get 按 id 查单条，按当前用户过滤。未命中活跃记录返回 ErrMessageNotFound。
+// Get 按 id 查单条 Message，按当前用户过滤。未命中活跃记录返回 ErrMessageNotFound。
 func (s *Store) Get(ctx context.Context, id string) (*chatdomain.Message, error) {
 	uid, err := userID(ctx)
 	if err != nil {
@@ -74,11 +109,11 @@ func (s *Store) Get(ctx context.Context, id string) (*chatdomain.Message, error)
 	return &m, nil
 }
 
-// ListByConversation returns a cursor-paginated page of messages ordered
-// by created_at ASC (oldest first — chronological chat history).
+// ListByConversation returns a cursor-paginated page of messages with their
+// Blocks, ordered by created_at ASC (oldest first — chronological).
 // Uses a (created_at, id) tuple cursor for stable pagination.
 //
-// ListByConversation 返回按 created_at ASC（最旧优先）排序的 cursor 分页消息。
+// ListByConversation 返回带 Blocks 的 cursor 分页消息，按 created_at ASC 排序。
 // 使用 (created_at, id) 元组 cursor 保证分页稳定。
 func (s *Store) ListByConversation(ctx context.Context, conversationID string, filter chatdomain.ListFilter) ([]*chatdomain.Message, string, error) {
 	uid, err := userID(ctx)
@@ -86,9 +121,7 @@ func (s *Store) ListByConversation(ctx context.Context, conversationID string, f
 		return nil, "", err
 	}
 	limit := filter.Limit
-	if limit <= 0 {
-		limit = 50
-	}
+
 	q := s.db.WithContext(ctx).
 		Where("conversation_id = ? AND user_id = ?", conversationID, uid)
 	if filter.Cursor != "" {
@@ -96,32 +129,66 @@ func (s *Store) ListByConversation(ctx context.Context, conversationID string, f
 		if err != nil {
 			return nil, "", fmt.Errorf("chatstore.ListByConversation: %w", err)
 		}
-		// Rows strictly "newer" than cursor (ASC order).
-		// 严格比 cursor "更新"的行（ASC 顺序）。
 		q = q.Where("(created_at, id) > (?, ?)", c.CreatedAt, c.ID)
 	}
+
 	var rows []*chatdomain.Message
 	if err := q.Order("created_at ASC, id ASC").
 		Limit(limit + 1).
 		Find(&rows).Error; err != nil {
 		return nil, "", fmt.Errorf("chatstore.ListByConversation: %w", err)
 	}
+
 	var next string
 	if len(rows) > limit {
 		last := rows[limit-1]
 		next, err = encodeCursor(pageCursor{CreatedAt: last.CreatedAt, ID: last.ID})
 		if err != nil {
-			return nil, "", fmt.Errorf("chatstore.ListByConversation: %w", err)
+			return nil, "", fmt.Errorf("chatstore.ListByConversation cursor: %w", err)
 		}
 		rows = rows[:limit]
+	}
+
+	if err := s.attachBlocks(ctx, rows); err != nil {
+		return nil, "", err
 	}
 	return rows, next, nil
 }
 
-// SaveAttachment inserts an Attachment record (no upsert — attachments are
-// write-once; the file on disk is immutable after upload).
+// attachBlocks fetches all blocks for the given messages in one query and
+// distributes them — avoids N+1 queries.
 //
-// SaveAttachment 插入 Attachment 记录（不 upsert——附件上传后磁盘文件不可变）。
+// attachBlocks 一次查询取所有相关 blocks 并分配到对应消息——避免 N+1。
+func (s *Store) attachBlocks(ctx context.Context, rows []*chatdomain.Message) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	ids := make([]string, len(rows))
+	for i, m := range rows {
+		ids[i] = m.ID
+	}
+
+	var blocks []*chatdomain.Block
+	if err := s.db.WithContext(ctx).
+		Where("message_id IN ?", ids).
+		Order("message_id, seq ASC").
+		Find(&blocks).Error; err != nil {
+		return fmt.Errorf("chatstore.attachBlocks: %w", err)
+	}
+
+	blockMap := make(map[string][]chatdomain.Block, len(rows))
+	for _, b := range blocks {
+		blockMap[b.MessageID] = append(blockMap[b.MessageID], *b)
+	}
+	for _, m := range rows {
+		m.Blocks = blockMap[m.ID]
+	}
+	return nil
+}
+
+// SaveAttachment inserts an Attachment record (write-once; files are immutable).
+//
+// SaveAttachment 插入 Attachment 记录（仅写一次，文件上传后不可变）。
 func (s *Store) SaveAttachment(ctx context.Context, a *chatdomain.Attachment) error {
 	if err := s.db.WithContext(ctx).Create(a).Error; err != nil {
 		return fmt.Errorf("chatstore.SaveAttachment: %w", err)
@@ -150,9 +217,8 @@ func (s *Store) GetAttachment(ctx context.Context, id string) (*chatdomain.Attac
 	return &a, nil
 }
 
-// pageCursor is the opaque continuation token for ListByConversation.
-//
-// pageCursor 是 ListByConversation 的不透明续传 token。
+// ── Cursor pagination ─────────────────────────────────────────────────────────
+
 type pageCursor struct {
 	CreatedAt time.Time `json:"c"`
 	ID        string    `json:"i"`
@@ -177,3 +243,7 @@ func decodeCursor(s string) (pageCursor, error) {
 	}
 	return c, nil
 }
+
+// Compile-time check that *Store satisfies chatdomain.Repository.
+// 编译期确认 *Store 满足 chatdomain.Repository。
+var _ chatdomain.Repository = (*Store)(nil)

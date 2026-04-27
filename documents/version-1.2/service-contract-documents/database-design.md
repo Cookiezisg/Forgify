@@ -60,8 +60,11 @@ GORM tag 表达不了的都在这里：
 详见 [`../service-design-documents/conversation.md`](../service-design-documents/conversation.md) §8。
 主键 `cv_<16hex>`；软删（`deleted_at`）；`user_id` 索引。新增字段：`system_prompt TEXT`（对话级自定义系统提示词，可为空）/ `auto_titled BOOLEAN`（标记标题是 AI 自动生成的还是用户手动改的）。Title 允许空字符串，首轮完成后 auto-titling goroutine 回写。
 
-#### `messages` ✅
-chat domain 所有；主键 `msg_<16hex>`；字段：`conversation_id`（索引）/ `user_id` / `role`（user\|assistant\|tool）/ `content` / `status`（pending\|streaming\|completed\|error\|cancelled）/ `stop_reason` / `token_usage`（JSON）/ `tool_calls`（JSON）/ `tool_call_id` / `reasoning_content`（thinking 模式推理内容，如 DeepSeek-R1 要求原样回传）/ `attachment_ids`（JSON 数组）/ 软删 `deleted_at`。FTS5 虚拟表 `messages_fts` 已在 `schema_extras.go` 实现，`messages` 表存在后自动建索引 + 3 个触发器（insert/update/delete）。构建时需 `CGO_CFLAGS="-DSQLITE_ENABLE_FTS5"`。详见 `service-design-documents/chat.md` §5。
+#### `messages` ✅（chat infra 重构后精简）
+chat domain 所有；主键 `msg_<16hex>`；字段：`conversation_id`（索引）/ `user_id` / `role`（**user\|assistant**，`tool` 角色已移除——tool result 变为 message_blocks 的 block）/ `status`（pending\|streaming\|completed\|error\|cancelled）/ `stop_reason` / `input_tokens INT` / `output_tokens INT` / 软删 `deleted_at`。**内容字段已移除**：`content`、`reasoning_content`、`tool_calls`、`tool_call_id`、`attachment_ids`、`token_usage` 全部转移到 `message_blocks` 表。FTS5 已移除（原基于 `content` 列，后续按 message_blocks 重建）。
+
+#### `message_blocks` ✅（chat infra 重构新增）
+chat domain 所有；主键 `blk_<16hex>`；外键 `message_id → messages.id`；字段：`seq INT`（消息内顺序）/ `type`（text\|reasoning\|tool_call\|tool_result\|attachment_ref）/ `data TEXT`（JSON，格式随 type 变化）。复合索引 `(message_id, seq)`。无软删（随 message 一起管理）。block type 的 data JSON 结构：`text/reasoning → {text}`；`tool_call → {id, name, summary, arguments}`；`tool_result → {toolCallId, ok, result}`；`attachment_ref → {attachmentId, fileName, mimeType}`。
 
 #### `chat_attachments` ✅
 chat domain 所有；主键 `att_<16hex>`；字段：`user_id` / `file_name` / `mime_type` / `size_bytes` / `storage_path`（相对 dataDir，json:"-" 不对外暴露）。文件实体存 `{dataDir}/attachments/{att_id}/original.{ext}`，50MB 限制。无软删（附件随对话消亡）。
@@ -123,14 +126,18 @@ accepted 版本上限 50 条/工具，超限硬删最旧。
 
 > 每完成一个 Phase 更新一次。
 
-**当前（Phase 3 完成）**：
+**当前（Phase 3 + chat infra 重构完成，2026-04-27）**：
 ```
 api_keys    model_configs   conversations
     │             │               │
     └─────────────┴───── local-user ──────┘
                                    │ conversation_id
-                               messages
-                                   │ att_id (JSON)
+                               messages ────────── message_blocks
+                               (纯元数据)              (内容存储：
+                                   │                   text/reasoning/
+                                   │                   tool_call/tool_result/
+                                   │                   attachment_ref)
+                                   │ att_id
                           chat_attachments
 
 tools ──────── tool_versions (status: pending/accepted/rejected)

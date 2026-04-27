@@ -7,8 +7,7 @@
 **依赖**：
 - `infra/db`（GORM + SQLite）
 - `infra/sandbox`（Python 沙箱）
-- `infra/vectordb`（chromem-go 语义搜索）
-- `infra/eino`（create_tool / edit_tool 内部 LLM 调用）
+- `infra/llm`（create_tool / edit_tool 内部 LLM 调用，替代原 infra/eino）
 - `pkg/reqctx`（userID 读取）
 - `domain/events`（SSE 事件推送）
 
@@ -540,13 +539,13 @@ HTTP 直接调用 `:run` 的用户传真实文件路径，不需要解析。
 ```go
 func ForgeTools(
     toolSvc      *toolapp.Service,
-    attachRepo   chatdomain.Repository,
-    modelPicker  modeldomain.ModelPicker,
-    keyProvider  apikeydomain.KeyProvider,
-    modelFactory einoinfra.ChatModelFactory,
-    bridge       events.Bridge,
-) []tool.BaseTool
-// 返回 5 个 System Tool：search / get / create / edit / run
+    attachRepo  chatdomain.Repository,
+    modelPicker modeldomain.ModelPicker,
+    keyProvider apikeydomain.KeyProvider,
+    llmFactory  *llminfra.Factory,        // 替代原 einoinfra.ChatModelFactory
+    bridge      eventsdomain.Bridge,
+) []agentapp.Tool
+// 返回 5 个 System Tool：search / get / create / edit / run（实现 agentapp.Tool 接口）
 ```
 
 ### search_tools

@@ -1,8 +1,8 @@
 // Package memory provides an in-process implementation of
-// domain/events.Bridge. Events fan out through buffered channels with
+// domain/eventsdomain.Bridge. Events fan out through buffered channels with
 // non-blocking sends — slow subscribers drop events, never stall the backend.
 //
-// Package memory 提供 domain/events.Bridge 的进程内实现。事件通过带
+// Package memory 提供 domain/eventsdomain.Bridge 的进程内实现。事件通过带
 // 缓冲的 channel 扇出，发送非阻塞——慢订阅者丢事件，不会拖慢后端。
 package memory
 
@@ -12,7 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/sunweilin/forgify/backend/internal/domain/events"
+	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
 )
 
 // defaultBufferSize caps the number of unread events per subscriber.
@@ -33,7 +33,7 @@ type Bridge struct {
 }
 
 type subscription struct {
-	ch     chan events.Event
+	ch     chan eventsdomain.Event
 	done   chan struct{}
 	closed sync.Once
 }
@@ -53,7 +53,7 @@ func NewBridge(log *zap.Logger) *Bridge {
 //
 // Publish 在 RLock 下快照订阅者列表，然后**释放锁**再发送——
 // 避免慢发送阻塞新的 Subscribe。
-func (b *Bridge) Publish(_ context.Context, key string, e events.Event) {
+func (b *Bridge) Publish(_ context.Context, key string, e eventsdomain.Event) {
 	b.mu.RLock()
 	snapshot := make([]*subscription, len(b.subs[key]))
 	copy(snapshot, b.subs[key])
@@ -79,9 +79,9 @@ func (b *Bridge) Publish(_ context.Context, key string, e events.Event) {
 //
 // Subscribe 注册新订阅，返回 channel 和幂等的取消函数。ctx.Done() 时
 // cancel 自动触发。
-func (b *Bridge) Subscribe(ctx context.Context, key string) (<-chan events.Event, func()) {
+func (b *Bridge) Subscribe(ctx context.Context, key string) (<-chan eventsdomain.Event, func()) {
 	sub := &subscription{
-		ch:   make(chan events.Event, defaultBufferSize),
+		ch:   make(chan eventsdomain.Event, defaultBufferSize),
 		done: make(chan struct{}),
 	}
 
@@ -123,6 +123,6 @@ func (b *Bridge) removeSub(key string, target *subscription) {
 	}
 }
 
-// Compile-time check that *Bridge satisfies events.Bridge.
-// 编译期确认 *Bridge 满足 events.Bridge。
-var _ events.Bridge = (*Bridge)(nil)
+// Compile-time check that *Bridge satisfies eventsdomain.Bridge.
+// 编译期确认 *Bridge 满足 eventsdomain.Bridge。
+var _ eventsdomain.Bridge = (*Bridge)(nil)

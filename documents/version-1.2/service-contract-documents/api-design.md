@@ -113,14 +113,14 @@ type Error = {
 | DELETE | `/api/v1/conversations/{id}` | 软删（204）|
 
 #### chat ✅
-详见 [`../service-design-documents/chat.md`](../service-design-documents/chat.md)。Eino ReAct Agent 驱动，Phase 2 tools=nil（纯流式对话），Phase 3+ 注入 System Tools。
+详见 [`../service-design-documents/chat.md`](../service-design-documents/chat.md)。自有 `infra/llm` 驱动（Eino 已移除），Block 模型，Phase 2 tools=nil（纯流式对话），Phase 3+ 注入 System Tools。
 
 | Method | Path | 用途 |
 |---|---|---|
 | POST | `/api/v1/attachments` | 上传附件（multipart，50MB 限制）→ 201 返回 attachment_id |
 | POST | `/api/v1/conversations/{id}/messages` | 发送消息（202，队列化异步 Agent 运行）；body 含 `attachmentIds[]` |
 | DELETE | `/api/v1/conversations/{id}/stream` | 取消正在运行的 Agent（204）；404 STREAM_NOT_FOUND |
-| GET | `/api/v1/conversations/{id}/messages` | 消息历史（cursor 分页，ASC 时序）；含 status / stopReason / tokenUsage |
+| GET | `/api/v1/conversations/{id}/messages` | 消息历史（cursor 分页，ASC 时序）；每条消息含 `blocks[]`（text/reasoning/tool_call/tool_result/attachment_ref）+ `inputTokens` + `outputTokens` |
 
 ---
 
@@ -154,8 +154,8 @@ type Error = {
 | GET | `/api/v1/tools/{id}/run-history` | 运行历史 |
 | GET | `/api/v1/tools/{id}/test-history` | 测试历史（?batchId= 过滤）|
 
-#### chat（Phase 3 升级：tool calling 激活）✅
-Phase 3 完成后 chat 已激活 System Tools（search/get/create/edit/run）。SetTools 注入，ConversationID 通过 context 传入 forge.go。无新端点，见 Phase 2 chat 端点。
+#### chat（Phase 3 升级）✅
+System Tools 注入（search/get/create/edit/run + web_search/fetch_url + 6 个 system tools）。SSE 新增 `chat.tool_call_start`（tool name 出现即推）。无新 HTTP 端点，见 Phase 2 chat 端点。
 
 ---
 

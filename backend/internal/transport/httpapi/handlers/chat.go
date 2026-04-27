@@ -15,7 +15,7 @@ import (
 
 	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
 	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
-	"github.com/sunweilin/forgify/backend/internal/domain/events"
+	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/pagination"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/response"
 )
@@ -25,14 +25,14 @@ import (
 // ChatHandler 提供 5 个聊天端点。
 type ChatHandler struct {
 	svc    *chatapp.Service
-	bridge events.Bridge
+	bridge eventsdomain.Bridge
 	log    *zap.Logger
 }
 
 // NewChatHandler wires the handler dependencies.
 //
 // NewChatHandler 装配 handler 依赖。
-func NewChatHandler(svc *chatapp.Service, bridge events.Bridge, log *zap.Logger) *ChatHandler {
+func NewChatHandler(svc *chatapp.Service, bridge eventsdomain.Bridge, log *zap.Logger) *ChatHandler {
 	return &ChatHandler{svc: svc, bridge: bridge, log: log}
 }
 

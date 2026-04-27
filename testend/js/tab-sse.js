@@ -40,8 +40,9 @@ document.addEventListener('alpine:init', () => {
 
       const types = this.source === 'forge'
         ? ['tool.code_streaming', 'tool.created', 'tool.pending_created']
-        : ['chat.reasoning_token', 'chat.token', 'chat.done', 'chat.error',
-           'chat.tool_call', 'chat.tool_result', 'conversation.title_updated']
+        : ['chat.reasoning_token', 'chat.token', 'chat.tool_call_start',
+           'chat.tool_call', 'chat.tool_result', 'chat.done', 'chat.error',
+           'conversation.title_updated']
 
       types.forEach(type => {
         es.addEventListener(type, e => {
@@ -96,12 +97,26 @@ document.addEventListener('alpine:init', () => {
         if (!item) { item = { type: 'text', content: '' }; turn.items.push(item) }
         item.content += data.delta
 
-      } else if (type === 'chat.tool_call') {
+      } else if (type === 'chat.tool_call_start') {
+        // Show tool name immediately before arguments arrive
         turn.items.push({
           type: 'tool', toolCallId: data.toolCallId,
-          toolName: data.toolName, summary: data.summary || '',
-          input: data.toolInput, result: null, ok: null,
+          toolName: data.toolName, summary: '', input: null, result: null, ok: null,
         })
+
+      } else if (type === 'chat.tool_call') {
+        // Fill in arguments on the existing placeholder (or create if no start received)
+        const existing = turn.items.find(i => i.type === 'tool' && i.toolCallId === data.toolCallId)
+        if (existing) {
+          existing.summary = data.summary || ''
+          existing.input = data.toolInput
+        } else {
+          turn.items.push({
+            type: 'tool', toolCallId: data.toolCallId,
+            toolName: data.toolName, summary: data.summary || '',
+            input: data.toolInput, result: null, ok: null,
+          })
+        }
         turn.items.push({ type: 'text', content: '' })
 
       } else if (type === 'chat.tool_result') {
@@ -124,7 +139,7 @@ document.addEventListener('alpine:init', () => {
     _forgeFor(toolCallId) {
       let f = this.forges.find(f => f.toolCallId === toolCallId)
       if (!f) {
-        f = { toolCallId, toolId: '', toolName: '', actionType: '', code: '', done: false, result: '' }
+        f = { toolCallId, messageId: '', toolId: '', toolName: '', actionType: '', code: '', done: false, result: '' }
         this.forges.push(f)
       }
       return f
@@ -135,20 +150,23 @@ document.addEventListener('alpine:init', () => {
         const f = this._forgeFor(data.toolCallId)
         if (!f.actionType) f.actionType = data.actionType
         if (data.toolId)   f.toolId = data.toolId
+        if (data.messageId && !f.messageId) f.messageId = data.messageId
         f.code += data.delta
 
       } else if (type === 'tool.created') {
         const f = this._forgeFor(data.toolCallId)
-        f.toolId   = data.toolId
-        f.toolName = data.toolName
-        f.done     = true
-        f.result   = 'created'
+        f.toolId    = data.toolId
+        f.toolName  = data.toolName
+        f.messageId = data.messageId || ''
+        f.done      = true
+        f.result    = 'created'
 
       } else if (type === 'tool.pending_created') {
         const f = this._forgeFor(data.toolCallId)
-        f.toolId = data.toolId
-        f.done   = true
-        f.result = 'pending'
+        f.toolId    = data.toolId
+        f.messageId = data.messageId || ''
+        f.done      = true
+        f.result    = 'pending'
       }
     },
 

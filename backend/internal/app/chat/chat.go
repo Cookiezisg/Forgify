@@ -1,22 +1,25 @@
 // Package chat (app/chat) orchestrates the chat pipeline: LLM streaming,
-// attachment handling, auto-titling, and SSE event publishing. It owns
-// no SQL — persistence is delegated to infra/store/chat.
+// attachment handling, auto-titling, and SSE event publishing.
+// It owns no SQL — persistence is delegated to infra/store/chat.
 //
 // Concurrency model: each conversation has a convQueue with a buffered task
-// channel. A single worker goroutine drains the channel sequentially, so
-// messages within one conversation always execute one at a time in order.
+// channel. A single worker goroutine drains it sequentially, so messages
+// within one conversation always execute one at a time in order.
 //
-// Package chat（app/chat）编排聊天管线：LLM 流式输出、附件处理、自动命名、
-// SSE 事件推送。不含 SQL——持久化委托给 infra/store/chat。
+// Package chat（app/chat）编排聊天管线：LLM 流式输出、附件处理、
+// 自动命名、SSE 事件推送。不含 SQL——持久化委托给 infra/store/chat。
 //
-// 并发模型：每个 conversation 拥有一个带缓冲任务 channel 的 convQueue。
-// 单个 worker goroutine 顺序消费队列，保证同一 conversation 的消息始终按序、逐条执行。
+// 并发模型：每个 conversation 拥有带缓冲任务 channel 的 convQueue。
+// 单个 worker goroutine 顺序消费队列，保证同一 conversation 的消息按序逐条执行。
 //
 // Files:
 //
-//	chat.go     — public API
+//	chat.go     — public API (Send, Cancel, ListMessages, UploadAttachment)
 //	pipeline.go — ReAct loop: stream, tools, SSE, DB writes
-//	util.go     — shared helpers
+//	stream.go   — consumeStream, assembleAssistantBlocks
+//	tools.go    — executeToolCalls (parallel), executeTool
+//	history.go  — LLM message history from DB blocks
+//	util.go     — ID generators, file helpers, truncate
 package chat
 
 import (
@@ -27,20 +30,20 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/cloudwego/eino/components/tool"
 	"go.uber.org/zap"
 
+	agentapp "github.com/sunweilin/forgify/backend/internal/app/agent"
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
 	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
-	"github.com/sunweilin/forgify/backend/internal/domain/events"
+	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
-	einoinfra "github.com/sunweilin/forgify/backend/internal/infra/eino"
+	llminfra "github.com/sunweilin/forgify/backend/internal/infra/llm"
 	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
-// queueCapacity is the maximum number of messages that can be queued
-// behind the currently running Agent for one conversation.
+// queueCapacity is the maximum number of messages that can queue behind
+// the currently running Agent for one conversation.
 //
 // queueCapacity 是单个 conversation 在当前 Agent 之后最多排队的消息数。
 const queueCapacity = 5
@@ -51,32 +54,33 @@ const queueCapacity = 5
 type convQueue struct {
 	ch     chan queuedTask
 	mu     sync.Mutex
-	cancel context.CancelFunc // nil when idle; set while Agent is running
+	cancel context.CancelFunc // nil when idle
 }
 
 // queuedTask is one pending chat turn waiting to be processed.
 //
 // queuedTask 是等待处理的一次对话请求。
 type queuedTask struct {
-	ctx  context.Context
-	conv *convdomain.Conversation
-	uid  string
+	ctx       context.Context
+	conv      *convdomain.Conversation
+	uid       string
+	userMsgID string // ID of the user message that triggered this task
 }
 
 // Service orchestrates LLM calls, attachment handling, and SSE event publishing.
 //
 // Service 编排 LLM 调用、附件处理和 SSE 事件推送。
 type Service struct {
-	repo         chatdomain.Repository
-	convRepo     convdomain.Repository
-	modelPicker  modeldomain.ModelPicker
-	keyProvider  apikeydomain.KeyProvider
-	modelFactory einoinfra.ChatModelFactory
-	tools        []tool.BaseTool
-	bridge       events.Bridge
-	dataDir      string
-	log          *zap.Logger
-	queues       sync.Map // conversationID → *convQueue
+	repo        chatdomain.Repository
+	convRepo    convdomain.Repository
+	modelPicker modeldomain.ModelPicker
+	keyProvider apikeydomain.KeyProvider
+	llmFactory  *llminfra.Factory
+	tools       []agentapp.Tool
+	bridge      eventsdomain.Bridge
+	dataDir     string
+	log         *zap.Logger
+	queues      sync.Map // conversationID → *convQueue
 }
 
 // NewService wires Service dependencies. Panics on nil logger.
@@ -87,8 +91,8 @@ func NewService(
 	convRepo convdomain.Repository,
 	modelPicker modeldomain.ModelPicker,
 	keyProvider apikeydomain.KeyProvider,
-	modelFactory einoinfra.ChatModelFactory,
-	bridge events.Bridge,
+	llmFactory *llminfra.Factory,
+	bridge eventsdomain.Bridge,
 	dataDir string,
 	log *zap.Logger,
 ) *Service {
@@ -99,14 +103,14 @@ func NewService(
 		dataDir = filepath.Join(os.TempDir(), "forgify")
 	}
 	return &Service{
-		repo:         repo,
-		convRepo:     convRepo,
-		modelPicker:  modelPicker,
-		keyProvider:  keyProvider,
-		modelFactory: modelFactory,
-		bridge:       bridge,
-		dataDir:      dataDir,
-		log:          log,
+		repo:        repo,
+		convRepo:    convRepo,
+		modelPicker: modelPicker,
+		keyProvider: keyProvider,
+		llmFactory:  llmFactory,
+		bridge:      bridge,
+		dataDir:     dataDir,
+		log:         log,
 	}
 }
 
@@ -114,7 +118,7 @@ func NewService(
 // Safe to call before any conversation starts.
 //
 // SetTools 将 system tools 注入 ReAct Agent，在任何对话启动前调用均安全。
-func (s *Service) SetTools(tools []tool.BaseTool) {
+func (s *Service) SetTools(tools []agentapp.Tool) {
 	s.tools = tools
 }
 
@@ -129,8 +133,7 @@ type SendInput struct {
 // UploadAttachment copies fileBytes to the data directory, stores metadata
 // in DB, and returns the created Attachment.
 //
-// UploadAttachment 把 fileBytes 复制到 data 目录，把元数据存入 DB，
-// 返回创建好的 Attachment。
+// UploadAttachment 把 fileBytes 复制到 data 目录，把元数据存入 DB，返回创建好的 Attachment。
 func (s *Service) UploadAttachment(ctx context.Context, fileBytes []byte, mimeType, fileName string) (*chatdomain.Attachment, error) {
 	if int64(len(fileBytes)) > chatdomain.MaxAttachmentBytes {
 		return nil, chatdomain.ErrAttachmentTooLarge
@@ -161,20 +164,21 @@ func (s *Service) UploadAttachment(ctx context.Context, fileBytes []byte, mimeTy
 		StoragePath: storagePath,
 	}
 	if err := s.repo.SaveAttachment(ctx, a); err != nil {
-		_ = os.RemoveAll(storageDir)
+		if cleanErr := os.RemoveAll(storageDir); cleanErr != nil {
+			s.log.Warn("failed to clean up attachment directory after save error",
+				zap.String("dir", storageDir), zap.Error(cleanErr))
+		}
 		return nil, err
 	}
 	return a, nil
 }
 
-// Send saves the user message and enqueues an Agent task for this conversation.
-// Returns immediately with the user message ID (202 semantics). If a previous
-// message is still streaming, this one waits in the queue rather than failing.
+// Send saves the user message (with attachment_ref blocks) and enqueues an
+// Agent task. Returns immediately with the user message ID (202 semantics).
 // Returns ErrStreamInProgress only when the queue is full.
 //
-// Send 保存用户消息并把 Agent 任务加入该 conversation 的队列，立刻返回
-// 用户消息 ID（202 语义）。若上一条消息仍在流式输出，本条在队列中等待而非报错；
-// 仅在队列已满时返回 ErrStreamInProgress。
+// Send 保存用户消息（含 attachment_ref blocks）并把 Agent 任务加入队列，立刻返回
+// 用户消息 ID（202 语义）。仅在队列已满时返回 ErrStreamInProgress。
 func (s *Service) Send(ctx context.Context, conversationID string, in SendInput) (string, error) {
 	conv, err := s.convRepo.Get(ctx, conversationID)
 	if err != nil {
@@ -185,28 +189,29 @@ func (s *Service) Send(ctx context.Context, conversationID string, in SendInput)
 		return "", fmt.Errorf("chat.Service.Send: missing user id in context")
 	}
 
-	attIDsJSON, _ := json.Marshal(in.AttachmentIDs)
+	blocks, err := s.buildUserBlocks(ctx, in)
+	if err != nil {
+		return "", fmt.Errorf("chat.Service.Send: build blocks: %w", err)
+	}
+
+	msgID := newMsgID()
 	userMsg := &chatdomain.Message{
-		ID:             newMsgID(),
+		ID:             msgID,
 		ConversationID: conversationID,
 		UserID:         uid,
 		Role:           chatdomain.RoleUser,
-		Content:        in.Content,
 		Status:         chatdomain.StatusCompleted,
-		AttachmentIDs:  string(attIDsJSON),
+		Blocks:         blocks,
 	}
 	if err := s.repo.Save(ctx, userMsg); err != nil {
 		return "", err
 	}
 
-	// Agent runs in a background context so it outlives the HTTP request.
-	// Agent 在后台 context 中运行，生命周期超过 HTTP 请求。
 	agentCtx := reqctx.SetUserID(context.Background(), uid)
 	agentCtx = reqctx.SetLocale(agentCtx, reqctx.GetLocale(ctx))
 
 	q := s.getOrCreateQueue(conversationID)
-	task := queuedTask{ctx: agentCtx, conv: conv, uid: uid}
-
+	task := queuedTask{ctx: agentCtx, conv: conv, uid: uid, userMsgID: msgID}
 	select {
 	case q.ch <- task:
 	default:
@@ -215,13 +220,48 @@ func (s *Service) Send(ctx context.Context, conversationID string, in SendInput)
 
 	s.log.Info("chat task enqueued",
 		zap.String("conversation_id", conversationID),
-		zap.String("user_message_id", userMsg.ID),
+		zap.String("user_message_id", msgID),
 		zap.Int("queue_depth", len(q.ch)))
-	return userMsg.ID, nil
+	return msgID, nil
 }
 
-// Cancel stops the currently running Agent for the conversation and drains
-// any pending queued tasks.
+// buildUserBlocks constructs the block slice for a user message.
+// Attachment blocks are populated with full metadata from the DB so the
+// frontend can display filenames and icons without extra API calls.
+//
+// buildUserBlocks 构建 user 消息的 block 列表。
+// 附件 block 从 DB 查询完整元数据，前端无需额外 API 调用即可展示文件名和图标。
+func (s *Service) buildUserBlocks(ctx context.Context, in SendInput) ([]chatdomain.Block, error) {
+	var blocks []chatdomain.Block
+	seq := 0
+
+	if in.Content != "" {
+		d, _ := json.Marshal(chatdomain.TextData{Text: in.Content})
+		blocks = append(blocks, chatdomain.Block{
+			ID: newBlockID(), Seq: seq, Type: chatdomain.BlockTypeText, Data: string(d),
+		})
+		seq++
+	}
+
+	for _, attID := range in.AttachmentIDs {
+		att, err := s.repo.GetAttachment(ctx, attID)
+		if err != nil {
+			return nil, fmt.Errorf("buildUserBlocks: attachment %q not found: %w", attID, err)
+		}
+		d, _ := json.Marshal(chatdomain.AttachmentRefData{
+			AttachmentID: attID,
+			FileName:     att.FileName,
+			MimeType:     att.MimeType,
+		})
+		blocks = append(blocks, chatdomain.Block{
+			ID: newBlockID(), Seq: seq, Type: chatdomain.BlockTypeAttachmentRef, Data: string(d),
+		})
+		seq++
+	}
+	return blocks, nil
+}
+
+// Cancel stops the currently running Agent and drains any pending tasks.
 //
 // Cancel 停止当前正在运行的 Agent 并清空队列中待处理的任务。
 func (s *Service) Cancel(_ context.Context, conversationID string) error {
@@ -230,16 +270,13 @@ func (s *Service) Cancel(_ context.Context, conversationID string) error {
 		return chatdomain.ErrStreamNotFound
 	}
 	q := v.(*convQueue)
-
 	q.mu.Lock()
 	cancel := q.cancel
 	q.mu.Unlock()
-
 	if cancel == nil {
 		return chatdomain.ErrStreamNotFound
 	}
 	cancel()
-
 	for {
 		select {
 		case <-q.ch:
@@ -249,9 +286,9 @@ func (s *Service) Cancel(_ context.Context, conversationID string) error {
 	}
 }
 
-// ListMessages returns a paginated list of messages for the conversation.
+// ListMessages returns a paginated list of messages (with Blocks) for the conversation.
 //
-// ListMessages 返回对话的分页消息列表。
+// ListMessages 返回对话的分页消息列表（含 Blocks）。
 func (s *Service) ListMessages(ctx context.Context, conversationID string, filter chatdomain.ListFilter) ([]*chatdomain.Message, string, error) {
 	return s.repo.ListByConversation(ctx, conversationID, filter)
 }

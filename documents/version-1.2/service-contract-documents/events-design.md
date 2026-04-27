@@ -48,9 +48,10 @@
 |---|---|---|---|
 | `chat.reasoning_token` | 推理模型 thinking 内容增量（`messageId` + `delta`），仅 DeepSeek-R1 等推理型模型产生 | `conversationId` | ✅ |
 | `chat.token` | 流式 token 增量（`messageId` + `delta`）| `conversationId` | ✅ |
-| `chat.tool_call` | Agent 调用 tool（`toolCallId` + `toolName` + `toolInput` + `summary`）| `conversationId` | ✅ |
+| `chat.tool_call_start` | LLM 流中首次出现 tool name 时立刻推（`messageId` + `toolCallId` + `toolName`），arguments 尚未完整 | `conversationId` | ✅ |
+| `chat.tool_call` | arguments 完整、执行前推（`messageId` + `toolCallId` + `toolName` + `toolInput` + `summary`）| `conversationId` | ✅ |
 | `chat.tool_result` | Tool 执行完成（`toolCallId` + `result` + `ok`）| `conversationId` | ✅ |
-| `chat.done` | 流式完成（`messageId` + `stopReason` + `tokenUsage`）| `conversationId` | ✅ |
+| `chat.done` | 流式完成（`messageId` + `stopReason` + `inputTokens` + `outputTokens`）| `conversationId` | ✅ |
 | `chat.error` | 流式错误（`code` + `message`，code 匹配 SCREAMING_SNAKE_CASE）| `conversationId` | ✅ |
 | `conversation.title_updated` | Auto-titling 回写标题（`title` + `autoTitled`）| `conversationId` | ✅ |
 
@@ -61,8 +62,8 @@
 | 事件名 | 用途 | 过滤 key | 状态 |
 |---|---|---|---|
 | `tool.code_streaming` | create_tool / edit_tool 代码生成逐 token（`messageId` + `toolCallId` + `toolId` + `actionType` + `delta`）| `conversationId` | ✅ |
-| `tool.created` | create_tool 成功保存新工具（`messageId` + `toolCallId` + `toolId` + `toolName`）| `conversationId` | ✅ |
-| `tool.pending_created` | edit_tool 保存 pending 变更（`messageId` + `toolCallId` + `toolId` + `pendingId` + `instruction`）| `conversationId` | ✅ |
+| `tool.created` | create_tool 成功保存新工具（`conversationId` + `messageId` + `toolCallId` + `toolId` + `toolName`）| `conversationId` | ✅ |
+| `tool.pending_created` | edit_tool 保存 pending 变更（`conversationId` + `messageId` + `toolCallId` + `toolId` + `pendingId` + `instruction`）| `conversationId` | ✅ |
 | `tool.test_case_generated` | generate-test-cases 生成一条完整测试用例（`toolId` + `testCaseId` + `name` + `inputData` + `expectedOutput`）| `toolId` | ✅ |
 | `tool.test_cases_done` | generate-test-cases 全部完成（`toolId` + `count`）| `toolId` | ✅ |
 | `tool.test_cases_not_supported` | LLM 判断工具不可自动测试（`toolId` + `reason`）| `toolId` | ✅ |

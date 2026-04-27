@@ -685,16 +685,17 @@ func (s *Service) GenerateTestCases(ctx context.Context, toolID string, count in
 	if err != nil {
 		return fmt.Errorf("toolapp.GenerateTestCases: llm: %w", err)
 	}
+	jsonRaw := extractJSONFromLLM(raw)
 	var resp struct {
 		NotSupported bool   `json:"not_supported"`
 		Reason       string `json:"reason"`
 		TestCases    []struct {
-			Name           string `json:"name"`
-			Input          string `json:"input"`
-			ExpectedOutput string `json:"expected_output"`
+			Name           string          `json:"name"`
+			Input          json.RawMessage `json:"input"`
+			ExpectedOutput json.RawMessage `json:"expected_output"`
 		} `json:"test_cases"`
 	}
-	if err = json.Unmarshal([]byte(raw), &resp); err != nil {
+	if err = json.Unmarshal([]byte(jsonRaw), &resp); err != nil {
 		return fmt.Errorf("toolapp.GenerateTestCases: parse response: %w", err)
 	}
 	if resp.NotSupported {
@@ -708,8 +709,8 @@ func (s *Service) GenerateTestCases(ctx context.Context, toolID string, count in
 			ToolID:         toolID,
 			UserID:         uid,
 			Name:           tc.Name,
-			InputData:      tc.Input,
-			ExpectedOutput: tc.ExpectedOutput,
+			InputData:      string(tc.Input),
+			ExpectedOutput: string(tc.ExpectedOutput),
 			CreatedAt:      time.Now().UTC(),
 			UpdatedAt:      time.Now().UTC(),
 		}
@@ -870,6 +871,33 @@ func mustSetUserID(ctx context.Context, t *tooldomain.Tool) error {
 	}
 	t.UserID = uid
 	return nil
+}
+
+// extractJSONFromLLM strips markdown code fences that LLMs often wrap around
+// JSON responses, then finds the outermost JSON object or array.
+// Returns the original string unchanged if no JSON delimiter is found.
+func extractJSONFromLLM(s string) string {
+	s = strings.TrimSpace(s)
+	// Strip ```json ... ``` or ``` ... ``` fences.
+	for _, fence := range []string{"```json\n", "```\n", "```json", "```"} {
+		if after, ok := strings.CutPrefix(s, fence); ok {
+			s = after
+			if idx := strings.LastIndex(s, "```"); idx >= 0 {
+				s = s[:idx]
+			}
+			s = strings.TrimSpace(s)
+			break
+		}
+	}
+	// Find outermost { } or [ ].
+	for _, pair := range [][2]byte{{'{', '}'}, {'[', ']'}} {
+		start := strings.IndexByte(s, pair[0])
+		end := strings.LastIndexByte(s, pair[1])
+		if start >= 0 && end > start {
+			return s[start : end+1]
+		}
+	}
+	return s
 }
 
 func uidFromTool(t *tooldomain.Tool) (string, bool) {

@@ -42,91 +42,155 @@
     <!-- Center: Chat -->
     <section class="chat-area" x-data="chatPanel()">
       <div class="chat-header">
-        <span x-text="conversationId ? (title || '(untitled)') : 'Select or create a conversation'"></span>
+        <span x-text="conversationId ? (title || '(untitled)') : 'New conversation'"></span>
         <span x-show="streaming" style="color:var(--accent);font-size:11px">● streaming</span>
+        <span x-show="!conversationId" style="font-size:11px;color:var(--text-mute)">— type and hit Enter to start</span>
       </div>
-      <template x-if="!conversationId">
-        <div class="chat-empty">Select a conversation from the sidebar</div>
-      </template>
-      <template x-if="conversationId">
-        <div style="display:contents">
-          <div class="chat-messages">
-            <template x-for="m in messages" :key="m.id">
-              <div class="msg" :class="m.role">
-                <span class="msg-role" x-text="m.role"></span>
 
-                <!-- User messages: plain bubble -->
-                <template x-if="m.role === 'user'">
-                  <div class="msg-bubble" x-text="m.content"></div>
-                </template>
+      <!-- Message list — always visible -->
+      <div class="chat-messages">
+        <template x-for="m in messages" :key="m.id">
+          <div class="msg" :class="m.role">
+            <span class="msg-role" x-text="m.role"></span>
 
-                <!-- Assistant messages: ordered items[] -->
-                <template x-if="m.role === 'assistant'">
-                  <div style="display:contents">
-                    <template x-if="m.items && m.items.length">
-                      <div style="display:flex;flex-direction:column;gap:4px">
-                        <template x-for="(item, idx) in m.items" :key="idx">
-                          <div>
-                            <!-- Thinking block -->
-                            <template x-if="item.type === 'thinking'">
-                              <details class="thinking-block">
-                                <summary class="thinking-summary"
-                                         x-text="item.done ? 'Thought' : 'Thinking...'"></summary>
-                                <pre class="thinking-content" x-text="item.content"></pre>
-                              </details>
-                            </template>
-                            <!-- Text segment -->
-                            <template x-if="item.type === 'text' && item.content">
-                              <div class="msg-bubble" x-text="item.content"></div>
-                            </template>
-                            <!-- Tool step -->
-                            <template x-if="item.type === 'tool'">
-                              <details class="tool-step-card" :open="item.result === null">
-                                <summary class="tool-step-summary">
-                                  <span class="tool-step-icon"
-                                        x-text="item.result === null ? '⚙' : (item.ok ? '✓' : '✗')"></span>
-                                  <span class="tool-step-name" x-text="item.toolName"></span>
-                                  <span class="tool-step-status"
-                                        :class="item.result === null ? 'running' : (item.ok ? 'ok' : 'err')"
-                                        x-text="item.result === null ? 'running…' : (item.ok ? 'ok' : 'error')"></span>
-                                </summary>
-                                <div class="tool-step-body">
-                                  <div class="tool-step-section">in</div>
-                                  <pre class="tool-step-pre" x-text="tryFmt(item.input)"></pre>
-                                  <template x-if="item.result !== null">
-                                    <div>
-                                      <div class="tool-step-section">out</div>
-                                      <pre class="tool-step-pre" x-text="tryFmt(item.result)"></pre>
-                                    </div>
-                                  </template>
-                                </div>
-                              </details>
-                            </template>
-                          </div>
-                        </template>
+            <!-- User message: blocks (text + attachment chips) -->
+            <template x-if="m.role === 'user'">
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <template x-for="(b, bi) in (m.blocks || [])" :key="bi">
+                  <div>
+                    <template x-if="b.type === 'text' && b.content">
+                      <div class="msg-bubble" x-text="b.content"></div>
+                    </template>
+                    <template x-if="b.type === 'attachment'">
+                      <div class="att-chip">
+                        <span x-text="attIcon(b.mimeType)"></span>
+                        <span x-text="b.fileName"></span>
                       </div>
                     </template>
-                    <!-- Fallback while items list is empty (very start of streaming) -->
-                    <template x-if="!m.items || !m.items.length">
-                      <div class="msg-bubble" x-text="m.status === 'streaming' ? '…' : ''"></div>
-                    </template>
-                    <span class="msg-status" :class="m.status"
-                          x-show="m.status !== 'completed'"
-                          x-text="m.status !== 'completed' ? m.status : ''"></span>
                   </div>
                 </template>
               </div>
             </template>
+
+            <!-- Assistant message: items[] with reasoning / tool / text -->
+            <template x-if="m.role === 'assistant'">
+              <div style="display:contents">
+                <template x-if="m.items && m.items.length">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <template x-for="(item, idx) in m.items" :key="idx">
+                      <div>
+                        <!-- Reasoning / thinking block -->
+                        <template x-if="item.type === 'reasoning'">
+                          <details class="thinking-block">
+                            <summary class="thinking-summary"
+                                     x-text="item.done ? 'Thought' : 'Thinking...'"></summary>
+                            <pre class="thinking-content" x-text="item.content"></pre>
+                          </details>
+                        </template>
+                        <!-- Text segment -->
+                        <template x-if="item.type === 'text' && item.content">
+                          <div class="msg-bubble" x-text="item.content"></div>
+                        </template>
+                        <!-- Tool step card -->
+                        <template x-if="item.type === 'tool'">
+                          <details class="tool-step-card" :open="item.result === null">
+                            <summary class="tool-step-summary">
+                              <span class="tool-step-icon"
+                                    x-text="item.result === null ? '⚙' : (item.ok ? '✓' : '✗')"></span>
+                              <span style="flex:1;min-width:0;overflow:hidden">
+                                <span class="tool-step-name" x-text="item.summary || item.toolName"></span>
+                                <span x-show="item.summary && item.summary !== item.toolName"
+                                      style="font-family:'Consolas',monospace;font-size:10px;color:var(--text-mute);margin-left:5px"
+                                      x-text="item.toolName"></span>
+                              </span>
+                              <span class="tool-step-status"
+                                    :class="item.result === null ? 'running' : (item.ok ? 'ok' : 'err')"
+                                    x-text="item.input === null ? 'starting…' : item.result === null ? 'running…' : (item.ok ? 'ok' : 'error')"></span>
+                            </summary>
+                            <template x-if="item.input !== null">
+                              <div class="tool-step-body">
+                                <!-- Skip args when empty ({}) — nothing useful to show -->
+                                <template x-if="item.input && item.input.trim() !== '{}'">
+                                  <div>
+                                    <div class="tool-step-section">args</div>
+                                    <pre class="tool-step-pre" x-text="tryFmt(item.input)"></pre>
+                                  </div>
+                                </template>
+                                <template x-if="item.result !== null">
+                                  <div>
+                                    <div class="tool-step-section">result</div>
+                                    <pre class="tool-step-pre" x-text="tryFmt(item.result)"></pre>
+                                  </div>
+                                </template>
+                              </div>
+                            </template>
+                          </details>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <!-- Fallback while items is empty at start of stream -->
+                <template x-if="!m.items || !m.items.length">
+                  <div class="msg-bubble" x-text="m.status === 'streaming' ? '…' : ''"></div>
+                </template>
+                <!-- Status + token info -->
+                <div style="display:flex;gap:8px;align-items:center;margin-top:2px">
+                  <span class="msg-status" :class="m.status"
+                        x-show="m.status !== 'completed'"
+                        x-text="m.status"></span>
+                  <span x-show="m.inputTokens || m.outputTokens"
+                        style="font-size:10px;color:var(--text-mute)"
+                        x-text="'↑' + (m.inputTokens||0) + ' ↓' + (m.outputTokens||0) + ' tokens'"></span>
+                </div>
+              </div>
+            </template>
           </div>
-          <div class="chat-input-area">
-            <textarea class="chat-input" x-model="input"
-              placeholder="Message… (Enter to send, Shift+Enter for newline)"
-              @keydown="handleKeydown($event)" rows="1"></textarea>
-            <button class="btn btn-primary" @click="send()" :disabled="streaming || !input.trim()">Send</button>
-            <button class="btn btn-ghost" @click="cancel()" x-show="streaming">Stop</button>
+        </template>
+        <!-- Empty state -->
+        <div x-show="messages.length === 0 && !streaming"
+             style="padding:32px;text-align:center;color:var(--text-mute);font-size:12px">
+          <div x-text="conversationId ? 'No messages yet.' : 'Type below and press Enter to start a new conversation.'"></div>
+        </div>
+      </div>
+
+      <!-- Input area — card style, always visible -->
+      <div class="chat-input-area">
+        <input type="file" x-ref="fileInput" multiple style="display:none"
+               @change="onFileChange($event)">
+        <div class="chat-input-box">
+          <!-- Attachment chips inside the card -->
+          <div x-show="pendingAtts.length > 0" class="att-pending-row-inner">
+            <template x-for="(a, i) in pendingAtts" :key="i">
+              <div class="att-chip">
+                <span x-text="attIcon(a.mimeType)"></span>
+                <span x-text="a.fileName"></span>
+                <button class="att-chip-remove" @click="removeAtt(i)">×</button>
+              </div>
+            </template>
+          </div>
+          <!-- Textarea — grows with content, no own border -->
+          <textarea class="chat-input" x-model="input"
+            placeholder="Message… (Enter to send, Shift+Enter for newline)"
+            @keydown="handleKeydown($event)"
+            @input="$el.style.height='auto'; $el.style.height=Math.min($el.scrollHeight,200)+'px'"
+            rows="1"></textarea>
+          <!-- Bottom toolbar -->
+          <div class="chat-input-bottom">
+            <button class="chat-attach-btn" @click="pickFile()"
+                    :disabled="streaming || uploading" title="Attach file">
+              <span x-text="uploading ? '⏳' : '📎'"></span>
+            </button>
+            <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+              <button x-show="streaming" class="chat-stop-btn" @click="cancel()">■ Stop</button>
+              <button class="chat-send-btn" @click="send()"
+                      :disabled="streaming || uploading || (!input.trim() && pendingAtts.length === 0)">
+                ↑ Send
+              </button>
+            </div>
           </div>
         </div>
-      </template>
+      </div>
     </section>
 
     <!-- Drag handle: chat ↔ tools -->
@@ -283,10 +347,17 @@
                         <div class="sse-tool-row">
                           <span class="sse-tool-icon"
                                 x-text="item.result === null ? '⚙' : (item.ok ? '✓' : '✗')"></span>
-                          <span class="sse-tool-name" x-text="item.summary || item.toolName"></span>
-                          <details style="flex:1;min-width:0">
-                            <summary style="cursor:pointer;color:var(--text-mute);font-size:10px">input / output</summary>
-                            <pre class="sse-pre" x-text="tryFmt(item.input)"></pre>
+                          <span style="min-width:0;flex-shrink:0">
+                            <span class="sse-tool-name" x-text="item.summary || item.toolName"></span>
+                            <span x-show="item.summary && item.summary !== item.toolName"
+                                  style="font-family:monospace;font-size:10px;color:var(--text-mute);margin-left:4px"
+                                  x-text="item.toolName"></span>
+                          </span>
+                          <!-- Only show args/result details if there's something worth showing -->
+                          <details style="flex:1;min-width:0"
+                                   x-show="(item.input && item.input.trim() !== '{}') || item.result !== null">
+                            <summary style="cursor:pointer;color:var(--text-mute);font-size:10px">args / result</summary>
+                            <pre class="sse-pre" x-show="item.input && item.input.trim() !== '{}'" x-text="tryFmt(item.input)"></pre>
                             <pre class="sse-pre" x-show="item.result !== null" x-text="tryFmt(item.result)"></pre>
                           </details>
                         </div>
@@ -308,7 +379,7 @@
               <template x-for="(f, i) in forges" :key="i">
                 <div class="sse-turn">
                   <div class="sse-turn-header"
-                       x-text="(f.actionType || '?') + (f.toolName ? ' · ' + f.toolName : '') + ' · tc ' + shortId(f.toolCallId)"></div>
+                       x-text="(f.actionType || '?') + (f.toolName ? ' · ' + f.toolName : '') + ' · tc:' + shortId(f.toolCallId) + (f.messageId ? ' · msg:' + shortId(f.messageId) : '')"></div>
                   <details style="margin-bottom:4px">
                     <summary style="cursor:pointer;font-size:10px;color:var(--text-mute)">code</summary>
                     <pre class="sse-pre" style="max-height:200px;overflow-y:auto" x-text="f.code"></pre>
@@ -371,6 +442,9 @@
           <div class="sql-run-bar">
             <button class="btn btn-primary btn-sm" @click="run()" :disabled="loading"
                     x-text="loading ? 'Running…' : '▶ Run'"></button>
+            <button class="btn btn-ghost btn-sm" @click="wrap = !wrap"
+                    :style="wrap ? 'color:var(--accent)' : ''"
+                    title="Toggle cell wrap">Wrap</button>
           </div>
           <div class="sql-result">
             <div class="sql-error" x-show="error" x-text="error"></div>
@@ -385,7 +459,11 @@
                   <template x-for="(row, ri) in result.rows" :key="ri">
                     <tr>
                       <template x-for="(cell, ci) in row" :key="ci">
-                        <td :title="String(cell ?? '')" x-text="fmt(cell)"></td>
+                        <td :title="String(cell ?? '')"
+                            :style="wrap ? 'white-space:pre-wrap;word-break:break-all;max-width:400px' : ''"
+                            :class="String(cell??'').match(/^(msg_|blk_|cv_|att_|t_)/) ? 'sql-cell-id' : ''"
+                            @click="clickCell(cell)"
+                            x-text="wrap ? (cell ?? '') : fmt(cell)"></td>
                       </template>
                     </tr>
                   </template>
@@ -453,7 +531,7 @@
       <!-- Tools Tab -->
       <div class="tab-content" x-show="activeRightTab==='tools'" x-data="toolsTab()">
 
-        <!-- sub-tab toggle -->
+        <!-- top toolbar -->
         <div class="panel-toolbar" style="gap:4px">
           <button class="tools-section-btn" :class="{active: section==='system'}" @click="section='system'">System</button>
           <button class="tools-section-btn" :class="{active: section==='user'}"   @click="section='user'">User Tools</button>
@@ -461,7 +539,7 @@
                   @click="loadSysTools();loadUserTools()">↻</button>
         </div>
 
-        <!-- System Tools invoke -->
+        <!-- ── System Tools ─────────────────────────────────────────────────── -->
         <div x-show="section==='system'" class="tools-invoke-area">
           <div class="tools-field">
             <div class="tools-label">Tool</div>
@@ -497,49 +575,266 @@
           </template>
         </div>
 
-        <!-- User Tools browser -->
-        <div x-show="section==='user'" class="tools-user-area">
-          <div class="panel-toolbar" style="border-top:none">
-            <input class="filter-input" x-model="userSearch" placeholder="Search tools…">
+        <!-- ── User Tools ───────────────────────────────────────────────────── -->
+        <div x-show="section==='user'" class="tools-user-area2">
+
+          <!-- list header: search + create + import -->
+          <div class="tools-list-header">
+            <input class="filter-input" x-model="userSearch" placeholder="Search tools…" style="flex:1">
+            <button class="btn btn-ghost btn-sm" @click="openCreate()" title="New tool">+ New</button>
+            <button class="btn btn-ghost btn-sm" @click="openImport()" title="Import JSON">↑</button>
           </div>
-          <div class="tools-user-list">
+
+          <!-- create form -->
+          <div x-show="showCreateForm" class="tool-form">
+            <div class="tool-form-row">
+              <span class="tool-form-label">Name</span>
+              <input class="tool-form-input" x-model="createForm.name" placeholder="my_tool">
+            </div>
+            <div class="tool-form-row">
+              <span class="tool-form-label">Description</span>
+              <input class="tool-form-input" x-model="createForm.description" placeholder="What this tool does">
+            </div>
+            <div class="tool-form-row">
+              <span class="tool-form-label">Code</span>
+              <textarea class="tool-form-input tool-form-code" x-model="createForm.code"
+                        placeholder="def my_tool(...):" spellcheck="false"></textarea>
+            </div>
+            <div class="tool-form-row">
+              <span class="tool-form-label">Tags (comma-separated)</span>
+              <input class="tool-form-input" x-model="createForm.tags" placeholder="sort, algorithm">
+            </div>
+            <div x-show="crudError" class="tool-form-err" x-text="crudError"></div>
+            <div class="tool-form-actions">
+              <button class="btn btn-primary btn-sm" @click="createTool()" :disabled="crudLoading"
+                      x-text="crudLoading ? 'Creating…' : 'Create'"></button>
+              <button class="btn btn-ghost btn-sm" @click="showCreateForm=false">Cancel</button>
+            </div>
+          </div>
+
+          <!-- import form -->
+          <div x-show="showImport" class="tool-form">
+            <div class="tool-form-row">
+              <span class="tool-form-label">Paste tool JSON</span>
+              <textarea class="tool-form-input tool-form-code" x-model="importJson"
+                        placeholder="{...}" spellcheck="false"></textarea>
+            </div>
+            <div x-show="crudError" class="tool-form-err" x-text="crudError"></div>
+            <div class="tool-form-actions">
+              <button class="btn btn-primary btn-sm" @click="importTool()" :disabled="crudLoading"
+                      x-text="crudLoading ? 'Importing…' : 'Import'"></button>
+              <button class="btn btn-ghost btn-sm" @click="showImport=false">Cancel</button>
+            </div>
+          </div>
+
+          <!-- tool list -->
+          <div class="tools-user-list2">
             <template x-for="t in filteredUserTools" :key="t.id">
               <div class="tools-user-item" :class="{active: userSelected?.id===t.id}" @click="selectUser(t)">
                 <div class="tools-user-name" x-text="t.name"></div>
                 <div class="tools-user-desc" x-text="t.description"></div>
               </div>
             </template>
-            <div x-show="filteredUserTools.length===0"
+            <div x-show="filteredUserTools.length===0 && !showCreateForm && !showImport"
                  style="padding:12px;font-size:11px;color:var(--text-mute)">No tools found.</div>
           </div>
+
+          <!-- selected tool detail -->
           <template x-if="userSelected">
-            <div class="tools-user-detail">
-              <div class="tools-label" x-text="userSelected.name"></div>
-              <pre class="tools-code-preview" x-text="userSelected.code"></pre>
-              <div class="tools-field" style="margin-top:6px">
-                <div class="tools-label">Input (JSON)</div>
-                <textarea class="tools-args-input" x-model="userInput"
-                          @keydown="handleUserKeydown($event)"
-                          placeholder="{}" spellcheck="false"></textarea>
-              </div>
-              <div class="tools-run-bar">
-                <button class="btn btn-primary btn-sm" @click="runUser()" :disabled="userLoading"
-                        x-text="userLoading ? 'Running…' : '▶ Run (Ctrl+Enter)'"></button>
-              </div>
-              <template x-if="userResult">
-                <div class="tools-result">
-                  <div class="tools-result-meta">
-                    <span :class="userResult.ok ? 'tools-ok' : 'tools-err'"
-                          x-text="userResult.ok ? 'ok' : 'error'"></span>
-                    <span x-show="userResult.elapsedMs" class="tools-elapsed"
-                          x-text="userResult.elapsedMs + 'ms'"></span>
-                    <span x-show="userResult.errorMsg" class="tools-err" x-text="userResult.errorMsg"></span>
-                  </div>
-                  <pre class="tools-output" x-text="userResultPretty()"></pre>
+            <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+
+              <!-- action bar -->
+              <div class="tool-action-bar">
+                <div class="tool-action-name" x-text="userSelected.name"></div>
+                <div class="tool-action-desc" x-text="userSelected.description"></div>
+                <div class="tool-action-btns">
+                  <button class="btn btn-ghost btn-sm" @click="openEdit()">Edit</button>
+                  <button class="btn btn-danger btn-sm" @click="deleteTool()">Del</button>
+                  <button class="btn btn-ghost btn-sm" @click="exportTool()">⇩</button>
                 </div>
-              </template>
+              </div>
+
+              <!-- edit form -->
+              <div x-show="showEditForm" class="tool-form">
+                <div class="tool-form-row">
+                  <span class="tool-form-label">Name</span>
+                  <input class="tool-form-input" x-model="editForm.name">
+                </div>
+                <div class="tool-form-row">
+                  <span class="tool-form-label">Description</span>
+                  <input class="tool-form-input" x-model="editForm.description">
+                </div>
+                <div class="tool-form-row">
+                  <span class="tool-form-label">Code</span>
+                  <textarea class="tool-form-input tool-form-code" x-model="editForm.code"
+                            spellcheck="false"></textarea>
+                </div>
+                <div class="tool-form-row">
+                  <span class="tool-form-label">Tags</span>
+                  <input class="tool-form-input" x-model="editForm.tags">
+                </div>
+                <div x-show="crudError" class="tool-form-err" x-text="crudError"></div>
+                <div class="tool-form-actions">
+                  <button class="btn btn-primary btn-sm" @click="saveTool()" :disabled="crudLoading"
+                          x-text="crudLoading ? 'Saving…' : 'Save'"></button>
+                  <button class="btn btn-ghost btn-sm" @click="showEditForm=false">Cancel</button>
+                </div>
+              </div>
+
+              <!-- detail tabs -->
+              <div class="tool-detail-tabs">
+                <button class="tool-detail-tab" :class="{active: userDetailTab==='run'}"
+                        @click="switchDetailTab('run')">Run</button>
+                <button class="tool-detail-tab" :class="{active: userDetailTab==='tests'}"
+                        @click="switchDetailTab('tests')"
+                        x-text="'Tests' + testSummaryLabel"></button>
+                <button class="tool-detail-tab" :class="{active: userDetailTab==='versions'}"
+                        @click="switchDetailTab('versions')">Versions</button>
+              </div>
+
+              <!-- ── Run tab ── -->
+              <div x-show="userDetailTab==='run'" class="tool-detail-body">
+                <details style="flex-shrink:0;border-bottom:1px solid var(--border)">
+                  <summary style="padding:5px 8px;cursor:pointer;font-size:10px;color:var(--text-mute);user-select:none">
+                    Code
+                  </summary>
+                  <pre class="tools-code-preview" style="border:none;border-radius:0;max-height:150px"
+                       x-text="userSelected.code"></pre>
+                </details>
+                <div class="tools-invoke-area" style="padding:8px;gap:6px">
+                  <div class="tools-field">
+                    <div class="tools-label">Input (JSON)</div>
+                    <textarea class="tools-args-input" x-model="userInput"
+                              @keydown="handleUserKeydown($event)"
+                              placeholder="{}" spellcheck="false"></textarea>
+                  </div>
+                  <div class="tools-run-bar">
+                    <button class="btn btn-primary btn-sm" @click="runUser()" :disabled="userLoading"
+                            x-text="userLoading ? 'Running…' : '▶ Run (Ctrl+Enter)'"></button>
+                  </div>
+                  <template x-if="userResult">
+                    <div class="tools-result">
+                      <div class="tools-result-meta">
+                        <span :class="userResult.ok ? 'tools-ok' : 'tools-err'"
+                              x-text="userResult.ok ? 'ok' : 'error'"></span>
+                        <span x-show="userResult.elapsedMs" class="tools-elapsed"
+                              x-text="userResult.elapsedMs + 'ms'"></span>
+                        <span x-show="userResult.errorMsg" class="tools-err" x-text="userResult.errorMsg"></span>
+                      </div>
+                      <pre class="tools-output" x-text="userResultPretty()"></pre>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- ── Tests tab ── -->
+              <div x-show="userDetailTab==='tests'" class="tool-detail-body">
+                <!-- toolbar -->
+                <div class="tool-test-toolbar">
+                  <button class="btn btn-ghost btn-sm" @click="runAllTests()" :disabled="testAllLoading"
+                          x-text="testAllLoading ? 'Running…' : '▶ Run All'"></button>
+                  <button class="btn btn-ghost btn-sm" @click="generateTestCases()" :disabled="generating"
+                          x-text="generating ? '✨ Generating…' : '✨ Generate'"></button>
+                  <button class="btn btn-ghost btn-sm" @click="showAddCase=!showAddCase">+ Add</button>
+                  <span x-show="testAllSummary" style="margin-left:auto;font-size:10px;color:var(--text-mute)"
+                        x-text="testAllSummary ? testAllSummary.passed + '/' + testAllSummary.total + ' passed' : ''"></span>
+                </div>
+                <!-- add case form -->
+                <div x-show="showAddCase" class="tool-form" style="margin:0;border-radius:0;border-left:none;border-right:none;border-top:none">
+                  <div class="tool-form-row">
+                    <span class="tool-form-label">Name</span>
+                    <input class="tool-form-input" x-model="addCaseForm.name" placeholder="test_case_name">
+                  </div>
+                  <div class="tool-form-row">
+                    <span class="tool-form-label">Input (JSON)</span>
+                    <textarea class="tool-form-input tool-form-code" x-model="addCaseForm.inputData"
+                              style="min-height:40px" spellcheck="false"></textarea>
+                  </div>
+                  <div class="tool-form-row">
+                    <span class="tool-form-label">Expected output (optional)</span>
+                    <input class="tool-form-input" x-model="addCaseForm.expectedOutput" placeholder="leave empty to skip assertion">
+                  </div>
+                  <div class="tool-form-actions">
+                    <button class="btn btn-primary btn-sm" @click="addTestCase()" :disabled="addCaseLoading"
+                            x-text="addCaseLoading ? 'Saving…' : 'Save'"></button>
+                    <button class="btn btn-ghost btn-sm" @click="showAddCase=false">Cancel</button>
+                  </div>
+                </div>
+                <!-- test case list -->
+                <div class="tool-test-list">
+                  <template x-for="tc in testCases" :key="tc.id">
+                    <div>
+                      <div class="tool-test-row">
+                        <span class="tool-test-icon" :style="testIconColor(tc.id)"
+                              x-text="testIcon(tc.id)"></span>
+                        <span class="tool-test-name" x-text="tc.name"></span>
+                        <span class="tool-test-out" x-show="testResults[tc.id]"
+                              x-text="testResults[tc.id]?.output || ''"></span>
+                        <button class="btn btn-ghost btn-sm" style="padding:1px 5px"
+                                @click="runOneTest(tc.id)" :disabled="testRunning[tc.id]">▶</button>
+                        <button class="btn btn-ghost btn-sm" style="padding:1px 5px;color:var(--red)"
+                                @click="deleteTestCase(tc.id)">✕</button>
+                      </div>
+                      <!-- expanded result -->
+                      <template x-if="testResults[tc.id] && testResults[tc.id].output">
+                        <div class="tool-test-expand"
+                             x-text="testResults[tc.id].output || testResults[tc.id].errorMsg"></div>
+                      </template>
+                    </div>
+                  </template>
+                  <div x-show="testCases.length===0 && !showAddCase"
+                       style="padding:12px;font-size:11px;color:var(--text-mute)">
+                    No test cases yet. Click + Add or ✨ Generate.
+                  </div>
+                </div>
+                <!-- generate log -->
+                <div x-show="generateLog.length > 0" class="tool-gen-log">
+                  <template x-for="(e, i) in generateLog" :key="i">
+                    <span class="tool-gen-entry"
+                          :style="e.ok ? 'color:var(--green)' : 'color:var(--red)'"
+                          x-text="(e.ok ? '✓ ' : '✗ ') + e.name"></span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- ── Versions tab ── -->
+              <div x-show="userDetailTab==='versions'" class="tool-detail-body">
+                <!-- pending bar -->
+                <div x-show="pending" class="tool-pending-bar">
+                  <span style="color:var(--yellow)">⚠</span>
+                  <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                        x-text="'Pending: ' + (pending?.message || '')"></span>
+                  <button class="btn btn-ghost btn-sm" @click="acceptPending()" :disabled="pendingLoading">Accept</button>
+                  <button class="btn btn-ghost btn-sm" @click="rejectPending()" :disabled="pendingLoading">Reject</button>
+                </div>
+                <!-- version list -->
+                <div class="tool-ver-list">
+                  <div x-show="versionsLoading"
+                       style="padding:12px;font-size:11px;color:var(--text-mute)">Loading…</div>
+                  <template x-for="v in versions" :key="v.id">
+                    <div class="tool-ver-row">
+                      <span class="tool-ver-num" x-text="'v' + v.version"></span>
+                      <span x-show="v.version === userSelected.versionCount"
+                            class="tool-ver-badge">current</span>
+                      <span class="tool-ver-msg" x-text="v.message || '—'"></span>
+                      <span class="tool-ver-time" x-text="fmtTime(v.createdAt)"></span>
+                      <button x-show="v.version !== userSelected.versionCount"
+                              class="btn btn-ghost btn-sm" style="flex-shrink:0"
+                              @click="revertToVersion(v.version)">↩</button>
+                    </div>
+                  </template>
+                  <div x-show="!versionsLoading && versions.length===0"
+                       style="padding:12px;font-size:11px;color:var(--text-mute)">No versions yet.</div>
+                </div>
+              </div>
+
             </div>
           </template>
+          <!-- no tool selected -->
+          <div x-show="!userSelected && !showCreateForm && !showImport"
+               style="padding:16px;font-size:11px;color:var(--text-mute);text-align:center">
+            Select a tool or click + New
+          </div>
         </div>
 
       </div>

@@ -9,9 +9,15 @@ document.addEventListener('alpine:init', () => {
 
     async init() {
       await this.load()
+      // Auto-select the most recent conversation so the input is immediately usable.
+      if (!Alpine.store('app').conversationId && this.conversations.length > 0) {
+        const c = this.conversations[0]
+        this.select(c.id, c.title)
+      }
       // Refresh list periodically to catch auto-title updates.
-      // 定期刷新对话列表以捕获自动命名更新。
       setInterval(() => this.load(), 8000)
+      // Re-load when a new conversation is created (e.g., from chat send or title update).
+      document.addEventListener('conv-created', () => this.load())
     },
 
     async load() {

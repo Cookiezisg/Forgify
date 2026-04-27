@@ -29,36 +29,20 @@ type extraGroup struct {
 //
 // schemaExtraGroups 按依赖表分组列出 AutoMigrate 表达不了的 SQL。
 // 每当某 domain 需要部分索引、触发器、FTS5 虚拟表或 CHECK 约束时，在此追加一个 extraGroup。
+// NOTE: FTS5 full-text search on messages was removed during the chat infra
+// refactor (2026-04-27). The old index was built on messages.content which no
+// longer exists. FTS5 will be re-added later targeting message_blocks.data.
+//
+// 注意：messages 的 FTS5 全文搜索在 chat 基础设施重构（2026-04-27）时移除。
+// 旧索引基于已删除的 messages.content 列。后续将基于 message_blocks.data 重建。
 var schemaExtraGroups = []extraGroup{
 	{
-		// messages_fts — FTS5 full-text search on message content.
-		// content= mode avoids duplicating data; three triggers keep the
-		// index in sync with the messages table.
-		//
-		// messages_fts — 对 message content 建 FTS5 全文搜索。
-		// content= 模式避免数据重复；三个触发器同步索引与 messages 表。
-		table: "messages",
+		// message_blocks — composite index for ordered block retrieval per message.
+		// message_blocks — 按消息有序取 block 的复合索引。
+		table: "message_blocks",
 		stmts: []string{
-			`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
-				USING fts5(content, content='messages', content_rowid='rowid')`,
-
-			`CREATE TRIGGER IF NOT EXISTS messages_fts_insert
-				AFTER INSERT ON messages BEGIN
-					INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
-				END`,
-
-			`CREATE TRIGGER IF NOT EXISTS messages_fts_update
-				AFTER UPDATE ON messages BEGIN
-					INSERT INTO messages_fts(messages_fts, rowid, content)
-						VALUES ('delete', old.rowid, old.content);
-					INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
-				END`,
-
-			`CREATE TRIGGER IF NOT EXISTS messages_fts_delete
-				AFTER DELETE ON messages BEGIN
-					INSERT INTO messages_fts(messages_fts, rowid, content)
-						VALUES ('delete', old.rowid, old.content);
-				END`,
+			`CREATE INDEX IF NOT EXISTS idx_mb_msg_seq
+				ON message_blocks(message_id, seq)`,
 		},
 	},
 	{

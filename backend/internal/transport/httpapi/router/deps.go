@@ -8,13 +8,13 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/cloudwego/eino/components/tool"
+	agentapp "github.com/sunweilin/forgify/backend/internal/app/agent"
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	chatapp "github.com/sunweilin/forgify/backend/internal/app/chat"
 	convapp "github.com/sunweilin/forgify/backend/internal/app/conversation"
 	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
 	toolapp "github.com/sunweilin/forgify/backend/internal/app/tool"
-	"github.com/sunweilin/forgify/backend/internal/domain/events"
+	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
 	"github.com/sunweilin/forgify/backend/internal/infra/logger"
 )
 
@@ -54,7 +54,7 @@ type Deps struct {
 	//
 	// EventsBridge 是进程内发布-订阅总线，由 ChatService（发布方）
 	// 和 SSE handler（订阅方）共享。
-	EventsBridge events.Bridge
+	EventsBridge eventsdomain.Bridge
 
 	// ── Dev-only fields (nil/zero when Dev=false) ─────────────────────────────
 
@@ -90,5 +90,5 @@ type Deps struct {
 	// for direct invocation via /dev/invoke (dev mode only).
 	// Tools 是注册到 agent 的 system tool 列表，在 dev 模式下可通过
 	// /dev/invoke 直接调用。
-	Tools []tool.BaseTool
+	Tools []agentapp.Tool
 }

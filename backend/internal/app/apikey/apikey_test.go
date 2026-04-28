@@ -15,8 +15,8 @@ import (
 	"go.uber.org/zap/zaptest"
 
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
-	infracrypto "github.com/sunweilin/forgify/backend/internal/infra/crypto"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	cryptoinfra "github.com/sunweilin/forgify/backend/internal/infra/crypto"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // fakeRepo is an in-memory apikeydomain.Repository for unit tests.
@@ -31,7 +31,7 @@ func newFakeRepo() *fakeRepo {
 }
 
 func (r *fakeRepo) Get(ctx context.Context, id string) (*apikeydomain.APIKey, error) {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	k, ok := r.items[id]
 	if !ok || k.UserID != uid {
 		return nil, apikeydomain.ErrNotFound
@@ -40,7 +40,7 @@ func (r *fakeRepo) Get(ctx context.Context, id string) (*apikeydomain.APIKey, er
 }
 
 func (r *fakeRepo) List(ctx context.Context, filter apikeydomain.ListFilter) ([]*apikeydomain.APIKey, string, error) {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	out := []*apikeydomain.APIKey{}
 	for _, k := range r.items {
 		if k.UserID != uid {
@@ -55,7 +55,7 @@ func (r *fakeRepo) List(ctx context.Context, filter apikeydomain.ListFilter) ([]
 }
 
 func (r *fakeRepo) GetByProvider(ctx context.Context, provider string) (*apikeydomain.APIKey, error) {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	var best *apikeydomain.APIKey
 	for _, k := range r.items {
 		if k.UserID != uid || k.Provider != provider {
@@ -111,7 +111,7 @@ func (t *fakeTester) Test(_ context.Context, _, _, _, _ string) (*TestResult, er
 
 func newTestService(t *testing.T, tester ConnectivityTester) (*Service, *fakeRepo) {
 	t.Helper()
-	enc, err := infracrypto.NewAESGCMEncryptor(infracrypto.DeriveKey("service-test-fixture"))
+	enc, err := cryptoinfra.NewAESGCMEncryptor(cryptoinfra.DeriveKey("service-test-fixture"))
 	if err != nil {
 		t.Fatalf("NewAESGCMEncryptor: %v", err)
 	}
@@ -121,7 +121,7 @@ func newTestService(t *testing.T, tester ConnectivityTester) (*Service, *fakeRep
 }
 
 func ctxFor(userID string) context.Context {
-	return reqctx.SetUserID(context.Background(), userID)
+	return reqctxpkg.SetUserID(context.Background(), userID)
 }
 
 func providersOf(ks []*apikeydomain.APIKey) []string {

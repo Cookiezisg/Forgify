@@ -22,7 +22,7 @@ import (
 	"gorm.io/gorm"
 
 	agentapp "github.com/sunweilin/forgify/backend/internal/app/agent"
-	"github.com/sunweilin/forgify/backend/internal/infra/logger"
+	loggerinfra "github.com/sunweilin/forgify/backend/internal/infra/logger"
 )
 
 // DevHandler serves all /dev/* endpoints.
@@ -30,7 +30,7 @@ import (
 // DevHandler 提供所有 /dev/* 端点。
 type DevHandler struct {
 	db             *gorm.DB
-	broadcaster    *logger.LogBroadcaster
+	broadcaster    *loggerinfra.LogBroadcaster
 	collectionsDir string
 	integrationDir string
 	port           int
@@ -43,7 +43,7 @@ type DevHandler struct {
 // NewDevHandler 装配 DevHandler 依赖。
 func NewDevHandler(
 	db *gorm.DB,
-	broadcaster *logger.LogBroadcaster,
+	broadcaster *loggerinfra.LogBroadcaster,
 	collectionsDir, integrationDir string,
 	port int,
 	tools []agentapp.Tool,

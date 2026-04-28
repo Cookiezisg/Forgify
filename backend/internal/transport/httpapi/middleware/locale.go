@@ -4,18 +4,18 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // InjectLocale parses Accept-Language and stamps ctx with a supported
-// Locale. Unsupported / missing → reqctx.DefaultLocale.
+// Locale. Unsupported / missing → reqctxpkg.DefaultLocale.
 //
 // InjectLocale 解析 Accept-Language 并塞入支持的 Locale。
-// 不支持或缺失则降级到 reqctx.DefaultLocale。
+// 不支持或缺失则降级到 reqctxpkg.DefaultLocale。
 func InjectLocale(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		loc := parseAcceptLanguage(r.Header.Get("Accept-Language"))
-		ctx := reqctx.SetLocale(r.Context(), loc)
+		ctx := reqctxpkg.SetLocale(r.Context(), loc)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -26,10 +26,10 @@ func InjectLocale(next http.Handler) http.Handler {
 //
 // parseAcceptLanguage 做简化的 BCP47 前缀匹配："en*" → en，其他 → zh-CN。
 // 未来加更多 locale 时升级到 x/text/language。
-func parseAcceptLanguage(header string) reqctx.Locale {
+func parseAcceptLanguage(header string) reqctxpkg.Locale {
 	header = strings.ToLower(strings.TrimSpace(header))
 	if strings.HasPrefix(header, "en") {
-		return reqctx.LocaleEn
+		return reqctxpkg.LocaleEn
 	}
-	return reqctx.LocaleZhCN
+	return reqctxpkg.LocaleZhCN
 }

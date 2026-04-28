@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
+	errorsdomain "github.com/sunweilin/forgify/backend/internal/domain/errors"
 )
 
 func TestParse_Defaults(t *testing.T) {
@@ -53,7 +53,7 @@ func TestParse_InvalidLimit(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			r := httptest.NewRequest("GET", "/api/v1/tools?limit="+raw, nil)
 			_, err := Parse(r)
-			if !errors.Is(err, derrors.ErrInvalidRequest) {
+			if !errors.Is(err, errorsdomain.ErrInvalidRequest) {
 				t.Errorf("limit=%q: want ErrInvalidRequest, got %v", raw, err)
 			}
 		})
@@ -107,7 +107,7 @@ func TestDecode_EmptyIsNoop(t *testing.T) {
 func TestDecode_MalformedReturnsInvalidRequest(t *testing.T) {
 	var v struct{ ID string }
 	err := DecodeCursor("this-is-not-base64!!!", &v)
-	if !errors.Is(err, derrors.ErrInvalidRequest) {
+	if !errors.Is(err, errorsdomain.ErrInvalidRequest) {
 		t.Errorf("want ErrInvalidRequest, got %v", err)
 	}
 }
@@ -119,7 +119,7 @@ func TestDecode_ValidBase64InvalidJSON(t *testing.T) {
 	// "hello" 的 base64url 编码（不是合法 JSON）
 	var v struct{ ID string }
 	err := DecodeCursor("aGVsbG8", &v)
-	if !errors.Is(err, derrors.ErrInvalidRequest) {
+	if !errors.Is(err, errorsdomain.ErrInvalidRequest) {
 		t.Errorf("want ErrInvalidRequest, got %v", err)
 	}
 }

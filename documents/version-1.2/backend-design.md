@@ -353,7 +353,21 @@ stdlib 例子：`net/http/cookiejar`（cookie 自有概念）、`database/sql/dr
 
 ### S13 包命名（三层同名 + 调用方别名）
 
-#### 1. 包内统一名
+**核心规则**：**所有**从 `internal/` 导入的包**必须使用别名**，格式为 `<name><role>`。无别名视为违规。
+
+#### 1. 别名后缀规则（按目录）
+
+| 目录 | 后缀 | 示例 |
+|---|---|---|
+| `internal/app/<name>/` | `app` | `apikeyapp`, `chatapp`, `convapp` |
+| `internal/domain/<name>/` | `domain` | `apikeydomain`, `chatdomain`, `errorsdomain` |
+| `internal/infra/<name>/`（非 store）| `infra` | `llminfra`, `dbinfra`, `loggerinfra`, `cryptoinfra`, `memoryinfra`, `sandboxinfra`, `chatinfra` |
+| `internal/infra/store/<name>/` | `store` | `apikeystore`, `chatstore`, `convstore` |
+| `internal/pkg/<name>/` | `pkg` | `reqctxpkg` |
+
+> `<name>` 取包路径最后一段（允许约定缩写，如 `conversation` → `conv`）。
+
+#### 2. 包内统一名
 
 每个 domain 在 **domain / app / infra/store** 三层的包名都用 domain 单名（如 `apikey`）：
 
@@ -363,7 +377,7 @@ stdlib 例子：`net/http/cookiejar`（cookie 自有概念）、`database/sql/dr
 | `internal/app/apikey/` | `package apikey` |
 | `internal/infra/store/apikey/` | `package apikey` |
 
-#### 2. 调用方按角色起别名
+#### 3. 调用方按角色起别名
 
 外部 import 时按 `<name><role>` 区分：
 
@@ -372,47 +386,37 @@ import (
     apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
     apikeyapp    "github.com/sunweilin/forgify/backend/internal/app/apikey"
     apikeystore  "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
+    dbinfra      "github.com/sunweilin/forgify/backend/internal/infra/db"
+    reqctxpkg    "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
-
-repo := apikeystore.New(gdb)
-svc  := apikeyapp.NewService(repo, ...)
-var _ apikeydomain.Repository  = repo
-var _ apikeydomain.KeyProvider = svc
 ```
 
-#### 3. 互相 import 的别名规则
+#### 4. 层间互引时的别名
 
-层间互引时，被引方按角色别名（**即使在自己包里**）：
+被引方按角色别名（**即使在自己包里**）：
 
 ```go
-// internal/infra/store/apikey/store.go
-package apikey                                              // 自己叫 apikey
+// internal/infra/store/apikey/apikey.go
+package apikey
 
 import (
-    apikeydomain "…/internal/domain/apikey"                 // 引 domain 起别名
+    apikeydomain "…/internal/domain/apikey"
+    reqctxpkg    "…/internal/pkg/reqctx"
 )
-
-func (s *Store) Get(ctx context.Context, id string) (*apikeydomain.APIKey, error) {
-    if errors.Is(err, gorm.ErrRecordNotFound) {
-        return nil, apikeydomain.ErrNotFound
-    }
-}
 ```
 
-> 当前包的 `package apikey` 声明本身**不占用** identifier slot，技术上不别名也能编过；但**统一别名**是项目规范，便于人眼一眼分辨"这是哪一层的 apikey"。
-
-#### 4. 接口定义位置
+#### 5. 接口定义位置
 
 - **接口定义**在 domain 层（如 `apikeydomain.Repository`、`apikeydomain.KeyProvider`）
 - **store 实现** Repository（被 service 消费）
 - **app/Service 实现** KeyProvider（被其他 domain 消费）
 - **跨 domain 消费**只通过 port 接口，禁止暴露 entity
 
-#### 5. 为什么这样定
+#### 6. 为什么这样定
 
-- **包内统一名**：每个 layer 内部代码读起来"就是 apikey"，不用 `apikeydomain.` 这种长前缀
-- **调用方别名**：组装时（main.go、service 互相依赖）一眼分辨层
-- **接口在 domain**：实现可换（GORM → ent → mock），domain 不动
+- **强制别名**：`reqctx` / `db` / `logger` 等包名太通用，无别名时与变量名冲突，一眼看不出是哪一层
+- **统一后缀**：grep 一个符号名，别名立刻告诉你它在哪一层
+- **包内统一名**：包内部代码读起来"就是 apikey"，不用长前缀
 
 ---
 

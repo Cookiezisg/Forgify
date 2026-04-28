@@ -25,7 +25,7 @@ import (
 	"go.uber.org/zap"
 
 	tooldomain "github.com/sunweilin/forgify/backend/internal/domain/tool"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ import (
 //
 // Sandbox 执行用户 Python 工具代码。
 type Sandbox interface {
-	Run(ctx context.Context, code string, input map[string]any, timeout time.Duration) (*tooldomain.ExecutionResult, error)
+	Run(ctx context.Context, code string, input map[string]any) (*tooldomain.ExecutionResult, error)
 }
 
 // LLMClient makes non-streaming LLM calls that return complete JSON responses.
@@ -512,7 +512,7 @@ func (s *Service) RunTool(ctx context.Context, toolID string, input map[string]a
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.sandbox.Run(ctx, t.Code, input, tooldomain.SandboxTimeout)
+	result, err := s.sandbox.Run(ctx, t.Code, input)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", tooldomain.ErrRunFailed, err)
 	}
@@ -600,7 +600,7 @@ func (s *Service) RunTestCase(ctx context.Context, testCaseID, batchID string) (
 	var input map[string]any
 	_ = json.Unmarshal([]byte(tc.InputData), &input)
 
-	result, sandboxErr := s.sandbox.Run(ctx, t.Code, input, tooldomain.SandboxTimeout)
+	result, sandboxErr := s.sandbox.Run(ctx, t.Code, input)
 	if sandboxErr != nil {
 		return nil, fmt.Errorf("%w: %v", tooldomain.ErrRunFailed, sandboxErr)
 	}
@@ -865,7 +865,7 @@ func tagsJSON(tags []string) string {
 }
 
 func mustSetUserID(ctx context.Context, t *tooldomain.Tool) error {
-	uid, ok := reqctx.GetUserID(ctx)
+	uid, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return fmt.Errorf("toolapp: missing user id in context")
 	}

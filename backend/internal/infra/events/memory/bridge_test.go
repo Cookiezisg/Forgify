@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/sunweilin/forgify/backend/internal/domain/events"
+	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
 )
 
 // newTestBridge returns a Bridge with an observable logger so tests can
@@ -31,8 +31,8 @@ func newTestBridge(t *testing.T) (*Bridge, *observer.ObservedLogs) {
 
 // sampleToken returns a ChatToken payload for tests.
 // sampleToken 返回测试用的 ChatToken。
-func sampleToken(delta string) events.ChatToken {
-	return events.ChatToken{
+func sampleToken(delta string) eventsdomain.ChatToken {
+	return eventsdomain.ChatToken{
 		ConversationID: "conv-1",
 		MessageID:      "msg-1",
 		Delta:          delta,
@@ -55,7 +55,7 @@ func TestBridge_SubscribeReceivesPublishedEvent(t *testing.T) {
 
 	select {
 	case e := <-ch:
-		token, ok := e.(events.ChatToken)
+		token, ok := e.(eventsdomain.ChatToken)
 		if !ok {
 			t.Fatalf("expected ChatToken, got %T", e)
 		}
@@ -82,7 +82,7 @@ func TestBridge_FiltersByKey(t *testing.T) {
 
 	select {
 	case e := <-ch2:
-		if e.(events.ChatToken).Delta != "for-two" {
+		if e.(eventsdomain.ChatToken).Delta != "for-two" {
 			t.Errorf("conv-2 got wrong token: %+v", e)
 		}
 	case <-time.After(time.Second):
@@ -103,7 +103,7 @@ func TestBridge_MultipleSubscribersSameKey(t *testing.T) {
 	b, _ := newTestBridge(t)
 
 	const n = 5
-	channels := make([]<-chan events.Event, n)
+	channels := make([]<-chan eventsdomain.Event, n)
 	cancels := make([]func(), n)
 	for i := range n {
 		channels[i], cancels[i] = b.Subscribe(t.Context(), "conv-1")
@@ -119,7 +119,7 @@ func TestBridge_MultipleSubscribersSameKey(t *testing.T) {
 	for i, ch := range channels {
 		select {
 		case e := <-ch:
-			if e.(events.ChatToken).Delta != "broadcast" {
+			if e.(eventsdomain.ChatToken).Delta != "broadcast" {
 				t.Errorf("subscriber %d: wrong token %+v", i, e)
 			}
 		case <-time.After(time.Second):
@@ -213,7 +213,7 @@ func TestBridge_SlowSubscriberDropsAndLogs(t *testing.T) {
 
 func TestBridge_OneSlowSubscriberDoesNotBlockOthers(t *testing.T) {
 	// Slow subscriber: never reads. Fast subscriber: reads immediately.
-	// Publisher should not block; fast receives all events.
+	// Publisher should not block; fast receives all eventsdomain.
 	// Use separate keys so one slow doesn't affect another on a different key,
 	// AND test same-key too.
 	//
@@ -297,7 +297,7 @@ func TestBridge_ConcurrentPublishAndSubscribe(t *testing.T) {
 		}(i)
 	}
 
-	// 10 publishers spraying events.
+	// 10 publishers spraying eventsdomain.
 	// 10 个发布者喷事件。
 	for i := range 10 {
 		wg.Add(1)

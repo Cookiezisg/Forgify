@@ -16,8 +16,8 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	tooldomain "github.com/sunweilin/forgify/backend/internal/domain/tool"
-	"github.com/sunweilin/forgify/backend/internal/infra/db"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	dbinfra "github.com/sunweilin/forgify/backend/internal/infra/db"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // compile-time interface satisfaction check.
@@ -30,12 +30,12 @@ const (
 
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	database, err := db.Open(db.Config{LogLevel: gormlogger.Silent})
+	database, err := dbinfra.Open(dbinfra.Config{LogLevel: gormlogger.Silent})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close(database) })
-	if err := db.Migrate(database,
+	t.Cleanup(func() { _ = dbinfra.Close(database) })
+	if err := dbinfra.Migrate(database,
 		&tooldomain.Tool{},
 		&tooldomain.ToolVersion{},
 		&tooldomain.ToolTestCase{},
@@ -48,7 +48,7 @@ func newStore(t *testing.T) *Store {
 }
 
 func ctxFor(userID string) context.Context {
-	return reqctx.SetUserID(context.Background(), userID)
+	return reqctxpkg.SetUserID(context.Background(), userID)
 }
 
 func mkTool(id, userID, name string) *tooldomain.Tool {

@@ -15,10 +15,10 @@
 // Files:
 //
 //	chat.go     — public API (Send, Cancel, ListMessages, UploadAttachment)
-//	pipeline.go — ReAct loop: stream, tools, SSE, DB writes
-//	stream.go   — consumeStream, assembleAssistantBlocks
-//	tools.go    — executeToolCalls (parallel), executeTool
-//	history.go  — LLM message history from DB blocks
+//	runner.go   — queue management, agentRun (ReAct loop), writeDB
+//	stream.go   — streamLLM, assembleBlocks, extractToolCalls, parseToolArgs
+//	tools.go    — runTools (parallel), executeTool
+//	history.go  — buildHistory, extendHistory, blocksToAssistantLLM
 //	util.go     — ID generators, file helpers, truncate
 package chat
 
@@ -39,7 +39,7 @@ import (
 	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
 	llminfra "github.com/sunweilin/forgify/backend/internal/infra/llm"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // queueCapacity is the maximum number of messages that can queue behind
@@ -138,7 +138,7 @@ func (s *Service) UploadAttachment(ctx context.Context, fileBytes []byte, mimeTy
 	if int64(len(fileBytes)) > chatdomain.MaxAttachmentBytes {
 		return nil, chatdomain.ErrAttachmentTooLarge
 	}
-	uid, ok := reqctx.GetUserID(ctx)
+	uid, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("chat.Service.UploadAttachment: missing user id in context")
 	}
@@ -184,7 +184,7 @@ func (s *Service) Send(ctx context.Context, conversationID string, in SendInput)
 	if err != nil {
 		return "", err
 	}
-	uid, ok := reqctx.GetUserID(ctx)
+	uid, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return "", fmt.Errorf("chat.Service.Send: missing user id in context")
 	}
@@ -207,8 +207,8 @@ func (s *Service) Send(ctx context.Context, conversationID string, in SendInput)
 		return "", err
 	}
 
-	agentCtx := reqctx.SetUserID(context.Background(), uid)
-	agentCtx = reqctx.SetLocale(agentCtx, reqctx.GetLocale(ctx))
+	agentCtx := reqctxpkg.SetUserID(context.Background(), uid)
+	agentCtx = reqctxpkg.SetLocale(agentCtx, reqctxpkg.GetLocale(ctx))
 
 	q := s.getOrCreateQueue(conversationID)
 	task := queuedTask{ctx: agentCtx, conv: conv, uid: uid, userMsgID: msgID}

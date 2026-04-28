@@ -12,7 +12,7 @@ func TestRun_BasicExecution(t *testing.T) {
 def add(a: int, b: int) -> int:
     return a + b
 `
-	result, err := s.Run(context.Background(), code, map[string]any{"a": 1, "b": 2}, 10*time.Second)
+	result, err := s.Run(context.Background(), code, map[string]any{"a": 1, "b": 2})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestRun_StringOutput(t *testing.T) {
 def greet(name: str) -> str:
     return f"hello {name}"
 `
-	result, err := s.Run(context.Background(), code, map[string]any{"name": "world"}, 10*time.Second)
+	result, err := s.Run(context.Background(), code, map[string]any{"name": "world"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,7 +50,7 @@ def parse(csv_text: str) -> dict:
     rows = [r.split(",") for r in csv_text.strip().split("\n")]
     return {"rows": rows, "count": len(rows)}
 `
-	result, err := s.Run(context.Background(), code, map[string]any{"csv_text": "a,b\n1,2"}, 10*time.Second)
+	result, err := s.Run(context.Background(), code, map[string]any{"csv_text": "a,b\n1,2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestRun_PythonException_ReturnsOKFalse(t *testing.T) {
 def divide(a: int, b: int) -> float:
     return a / b
 `
-	result, err := s.Run(context.Background(), code, map[string]any{"a": 1, "b": 0}, 10*time.Second)
+	result, err := s.Run(context.Background(), code, map[string]any{"a": 1, "b": 0})
 	if err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
@@ -85,7 +85,9 @@ def divide(a: int, b: int) -> float:
 	}
 }
 
-func TestRun_Timeout(t *testing.T) {
+func TestRun_ContextCancel(t *testing.T) {
+	// Cancelling ctx must kill the subprocess and return ok=false.
+	// ctx cancel 必须杀掉子进程并返回 ok=false。
 	s := New("python3")
 	code := `
 def slow() -> str:
@@ -93,12 +95,15 @@ def slow() -> str:
     time.sleep(10)
     return "done"
 `
-	result, err := s.Run(context.Background(), code, map[string]any{}, 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	result, err := s.Run(ctx, code, map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 	if result.OK {
-		t.Errorf("expected ok=false for timeout")
+		t.Errorf("expected ok=false when context is cancelled")
 	}
 }
 
@@ -108,7 +113,7 @@ func TestRun_DefaultArgument(t *testing.T) {
 def repeat(text: str, times: int = 2) -> str:
     return text * times
 `
-	result, err := s.Run(context.Background(), code, map[string]any{"text": "ab"}, 10*time.Second)
+	result, err := s.Run(context.Background(), code, map[string]any{"text": "ab"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

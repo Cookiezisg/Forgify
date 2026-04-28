@@ -22,7 +22,7 @@ import (
 	"go.uber.org/zap"
 
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // Service orchestrates model config CRUD and implements modeldomain.ModelPicker.
@@ -76,7 +76,7 @@ func (s *Service) Upsert(ctx context.Context, scenario string, in UpsertInput) (
 	if strings.TrimSpace(in.ModelID) == "" {
 		return nil, modeldomain.ErrModelIDRequired
 	}
-	uid, ok := reqctx.GetUserID(ctx)
+	uid, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("model.Service.Upsert: missing user id in context")
 	}

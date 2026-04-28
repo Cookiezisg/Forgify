@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"strconv"
 
-	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
+	errorsdomain "github.com/sunweilin/forgify/backend/internal/domain/errors"
 )
 
 const (
@@ -32,9 +32,9 @@ type Params struct {
 }
 
 // Parse extracts pagination params from query string. Invalid values
-// return derrors.ErrInvalidRequest.
+// return errorsdomain.ErrInvalidRequest.
 //
-// Parse 从 query string 提取分页参数。非法值返回 derrors.ErrInvalidRequest。
+// Parse 从 query string 提取分页参数。非法值返回 errorsdomain.ErrInvalidRequest。
 func Parse(r *http.Request) (Params, error) {
 	q := r.URL.Query()
 
@@ -42,7 +42,7 @@ func Parse(r *http.Request) (Params, error) {
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			return Params{}, fmt.Errorf("limit must be a positive integer: %w", derrors.ErrInvalidRequest)
+			return Params{}, fmt.Errorf("limit must be a positive integer: %w", errorsdomain.ErrInvalidRequest)
 		}
 		if n > MaxLimit {
 			n = MaxLimit
@@ -73,20 +73,20 @@ func EncodeCursor(v any) (string, error) {
 }
 
 // DecodeCursor reverses EncodeCursor. Empty cursor is a no-op (v untouched).
-// Malformed cursors return derrors.ErrInvalidRequest.
+// Malformed cursors return errorsdomain.ErrInvalidRequest.
 //
 // DecodeCursor 是 EncodeCursor 的逆操作。空 cursor 为 no-op（v 不动）。
-// 格式错误的 cursor 返回 derrors.ErrInvalidRequest。
+// 格式错误的 cursor 返回 errorsdomain.ErrInvalidRequest。
 func DecodeCursor(cursor string, v any) error {
 	if cursor == "" {
 		return nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return fmt.Errorf("decode cursor: %w", derrors.ErrInvalidRequest)
+		return fmt.Errorf("decode cursor: %w", errorsdomain.ErrInvalidRequest)
 	}
 	if err := json.Unmarshal(raw, v); err != nil {
-		return fmt.Errorf("unmarshal cursor: %w", derrors.ErrInvalidRequest)
+		return fmt.Errorf("unmarshal cursor: %w", errorsdomain.ErrInvalidRequest)
 	}
 	return nil
 }

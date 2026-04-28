@@ -1,6 +1,10 @@
 // tools.go — Parallel tool call execution within the ReAct loop.
+// runTools fans out to goroutines, one per tool call, and collects results
+// in original-call order so block seq is deterministic.
 //
-// tools.go — ReAct loop 内的并行 tool call 执行。
+// tools.go — ReAct loop 内的并行工具调用执行。
+// runTools 为每个工具调用启动 goroutine，按原始调用顺序收集结果，
+// 保证 block seq 确定。
 package chat
 
 import (
@@ -17,12 +21,12 @@ import (
 	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
 )
 
-// executeToolCalls runs all tool calls in parallel, publishes SSE events for
-// each one, and returns tool_result blocks ordered by the original call index.
+// runTools executes all tool calls in parallel, publishing SSE events for each,
+// and returns tool_result blocks ordered by the original call index.
 //
-// executeToolCalls 并行运行所有 tool call，为每个推送 SSE 事件，
+// runTools 并行执行所有工具调用，为每个推送 SSE 事件，
 // 按原始调用 index 排序返回 tool_result blocks。
-func (s *Service) executeToolCalls(
+func (s *Service) runTools(
 	ctx context.Context,
 	calls []chatdomain.ToolCallData,
 	convID, msgID string,
@@ -38,8 +42,7 @@ func (s *Service) executeToolCalls(
 		wg.Add(1)
 		go func(idx int, tc chatdomain.ToolCallData) {
 			defer wg.Done()
-			block := s.runOneTool(ctx, tc, convID, msgID, idx)
-			ch <- result{idx: idx, block: block}
+			ch <- result{idx: idx, block: s.runOneTool(ctx, tc, convID, msgID, idx)}
 		}(i, call)
 	}
 
@@ -58,7 +61,7 @@ func (s *Service) executeToolCalls(
 // runOneTool executes a single tool call, publishes SSE, and returns the
 // tool_result block. Never returns an error — failures become ok=false results.
 //
-// runOneTool 执行单个 tool call，推送 SSE，返回 tool_result block。
+// runOneTool 执行单个工具调用，推送 SSE，返回 tool_result block。
 // 永不返回 error——失败以 ok=false 结果呈现。
 func (s *Service) runOneTool(
 	ctx context.Context,
@@ -105,7 +108,7 @@ func (s *Service) runOneTool(
 // executeTool finds the named tool and calls Execute.
 // Returns (result, true) on success, (errorMessage, false) on failure.
 //
-// executeTool 查找指定 tool 并调用 Execute。
+// executeTool 查找指定工具并调用 Execute。
 // 成功返回 (result, true)，失败返回 (errorMessage, false)。
 func (s *Service) executeTool(ctx context.Context, name, argsJSON string) (string, bool) {
 	for _, t := range s.tools {
@@ -116,11 +119,10 @@ func (s *Service) executeTool(ctx context.Context, name, argsJSON string) (strin
 		if err != nil {
 			s.log.Warn("tool execute failed",
 				zap.String("tool", name), zap.Error(err))
-			msg := err.Error()
 			if output != "" {
-				msg = output
+				return output, false
 			}
-			return msg, false
+			return err.Error(), false
 		}
 		return output, true
 	}

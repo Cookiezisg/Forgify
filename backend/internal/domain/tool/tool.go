@@ -218,11 +218,6 @@ const (
 	MaxTestHistoryPerTool = 200 // per tool / 每工具
 )
 
-// SandboxTimeout is the hard limit for a single Python sandbox execution.
-//
-// SandboxTimeout 是单次 Python 沙箱执行的硬超时限制。
-const SandboxTimeout = 30 * time.Second
-
 // ── Sentinel errors ───────────────────────────────────────────────────────────
 
 // Sentinel errors. Mapped to HTTP responses by

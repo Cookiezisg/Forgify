@@ -4,14 +4,13 @@
 // the result as JSON to stdout.
 //
 // Security model: single local user, no network/filesystem restrictions.
-// A 30-second timeout is enforced via context cancellation.
+// Lifetime is controlled by the caller's context — cancel to stop.
 //
 // Package sandbox 为用户锻造的工具提供 Python subprocess 执行器。
 // 工具作者只需定义函数体；sandbox 自动追加 __main__ 驱动代码，从 stdin
 // 读取 JSON 输入，调用函数，将结果以 JSON 写入 stdout。
 //
-// 安全模型：本地单用户，不限制网络/文件系统访问。通过 context 超时强制
-// 30 秒限制。
+// 安全模型：本地单用户，不限制网络/文件系统访问。生命周期由调用方 context 控制。
 package sandbox
 
 import (
@@ -59,15 +58,15 @@ func New(pythonPath string) *PythonSandbox {
 // one function; the sandbox extracts the function name automatically.
 // Returns ExecutionResult regardless of whether the function succeeded or
 // raised an exception — only a subprocess / IO failure elevates to error.
+// The process is killed when ctx is cancelled.
 //
 // Run 以 input 作为关键字参数执行 code。code 必须恰好定义一个函数；
 // sandbox 自动提取函数名。无论函数成功或抛出异常，均返回 ExecutionResult——
-// 只有 subprocess / IO 层故障才上升为 Go error。
+// 只有 subprocess / IO 层故障才上升为 Go error。ctx cancel 时进程被杀。
 func (s *PythonSandbox) Run(
 	ctx context.Context,
 	code string,
 	input map[string]any,
-	timeout time.Duration,
 ) (*tooldomain.ExecutionResult, error) {
 	funcName, err := extractFuncName(code)
 	if err != nil {
@@ -93,11 +92,8 @@ func (s *PythonSandbox) Run(
 		return nil, fmt.Errorf("sandbox.Run: marshal input: %w", err)
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	start := time.Now()
-	cmd := exec.CommandContext(runCtx, s.pythonPath, tmpFile.Name())
+	cmd := exec.CommandContext(ctx, s.pythonPath, tmpFile.Name())
 	cmd.Stdin = strings.NewReader(string(inputJSON))
 
 	stdout, runErr := cmd.Output()

@@ -17,20 +17,20 @@ import (
 
 	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
-	"github.com/sunweilin/forgify/backend/internal/infra/db"
+	dbinfra "github.com/sunweilin/forgify/backend/internal/infra/db"
 	modelstore "github.com/sunweilin/forgify/backend/internal/infra/store/model"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/middleware"
 )
 
 func newModelTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	gdb, err := db.Open(db.Config{LogLevel: gormlogger.Silent})
+	gdb, err := dbinfra.Open(dbinfra.Config{LogLevel: gormlogger.Silent})
 	if err != nil {
-		t.Fatalf("db.Open: %v", err)
+		t.Fatalf("dbinfra.Open: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close(gdb) })
-	if err := db.Migrate(gdb, &modeldomain.ModelConfig{}); err != nil {
-		t.Fatalf("db.Migrate: %v", err)
+	t.Cleanup(func() { _ = dbinfra.Close(gdb) })
+	if err := dbinfra.Migrate(gdb, &modeldomain.ModelConfig{}); err != nil {
+		t.Fatalf("dbinfra.Migrate: %v", err)
 	}
 	log := zaptest.NewLogger(t)
 	svc := modelapp.NewService(modelstore.New(gdb), log)

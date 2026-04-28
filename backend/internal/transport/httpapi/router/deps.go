@@ -15,7 +15,7 @@ import (
 	modelapp "github.com/sunweilin/forgify/backend/internal/app/model"
 	toolapp "github.com/sunweilin/forgify/backend/internal/app/tool"
 	eventsdomain "github.com/sunweilin/forgify/backend/internal/domain/events"
-	"github.com/sunweilin/forgify/backend/internal/infra/logger"
+	loggerinfra "github.com/sunweilin/forgify/backend/internal/infra/logger"
 )
 
 // Deps bundles everything the HTTP transport layer needs. Constructed
@@ -68,7 +68,7 @@ type Deps struct {
 
 	// LogBroadcaster fans backend log entries to /dev/logs SSE subscribers.
 	// LogBroadcaster 把后端日志条目扇出给 /dev/logs SSE 订阅者。
-	LogBroadcaster *logger.LogBroadcaster
+	LogBroadcaster *loggerinfra.LogBroadcaster
 
 	// CollectionsDir is the filesystem path to testend/collections/*.yaml.
 	// CollectionsDir 是 testend/collections/*.yaml 的文件系统路径。

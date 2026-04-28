@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // fakeRepo is an in-memory modeldomain.Repository for testing.
@@ -29,7 +29,7 @@ func newFakeRepo() *fakeRepo {
 }
 
 func (r *fakeRepo) GetByScenario(ctx context.Context, scenario string) (*modeldomain.ModelConfig, error) {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	for _, m := range r.rows {
 		if m.UserID == uid && m.Scenario == scenario {
 			cp := *m
@@ -40,7 +40,7 @@ func (r *fakeRepo) GetByScenario(ctx context.Context, scenario string) (*modeldo
 }
 
 func (r *fakeRepo) List(ctx context.Context) ([]*modeldomain.ModelConfig, error) {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	var out []*modeldomain.ModelConfig
 	for _, m := range r.rows {
 		if m.UserID == uid {
@@ -68,7 +68,7 @@ func newSvc(t *testing.T, repo modeldomain.Repository) *Service {
 }
 
 func ctxAlice() context.Context {
-	return reqctx.SetUserID(context.Background(), "u-alice")
+	return reqctxpkg.SetUserID(context.Background(), "u-alice")
 }
 
 // --- NewService ---

@@ -15,8 +15,8 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
-	"github.com/sunweilin/forgify/backend/internal/infra/db"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	dbinfra "github.com/sunweilin/forgify/backend/internal/infra/db"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 const (
@@ -29,19 +29,19 @@ const (
 // newStore 打开内存 DB，迁移 APIKey 表，返回 Store。
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	database, err := db.Open(db.Config{LogLevel: gormlogger.Silent})
+	database, err := dbinfra.Open(dbinfra.Config{LogLevel: gormlogger.Silent})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close(database) })
-	if err := db.Migrate(database, &apikeydomain.APIKey{}); err != nil {
+	t.Cleanup(func() { _ = dbinfra.Close(database) })
+	if err := dbinfra.Migrate(database, &apikeydomain.APIKey{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return New(database)
 }
 
 func ctxFor(userID string) context.Context {
-	return reqctx.SetUserID(context.Background(), userID)
+	return reqctxpkg.SetUserID(context.Background(), userID)
 }
 
 // mkKey builds a minimal APIKey for insertion. Caller can override fields.

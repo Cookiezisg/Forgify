@@ -26,9 +26,9 @@ import (
 
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
+	cryptoinfra "github.com/sunweilin/forgify/backend/internal/infra/crypto"
+	dbinfra "github.com/sunweilin/forgify/backend/internal/infra/db"
 	apikeystore "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
-	infracrypto "github.com/sunweilin/forgify/backend/internal/infra/crypto"
-	"github.com/sunweilin/forgify/backend/internal/infra/db"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/middleware"
 )
 
@@ -50,16 +50,16 @@ func (t *fakeTester) Test(ctx context.Context, provider, key, baseURL, apiFormat
 func newTestServer(t *testing.T, tester apikeyapp.ConnectivityTester) *httptest.Server {
 	t.Helper()
 
-	gdb, err := db.Open(db.Config{LogLevel: gormlogger.Silent})
+	gdb, err := dbinfra.Open(dbinfra.Config{LogLevel: gormlogger.Silent})
 	if err != nil {
-		t.Fatalf("db.Open: %v", err)
+		t.Fatalf("dbinfra.Open: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close(gdb) })
-	if err := db.Migrate(gdb, &apikeydomain.APIKey{}); err != nil {
-		t.Fatalf("db.Migrate: %v", err)
+	t.Cleanup(func() { _ = dbinfra.Close(gdb) })
+	if err := dbinfra.Migrate(gdb, &apikeydomain.APIKey{}); err != nil {
+		t.Fatalf("dbinfra.Migrate: %v", err)
 	}
 
-	enc, err := infracrypto.NewAESGCMEncryptor(infracrypto.DeriveKey("handler-test-fixture"))
+	enc, err := cryptoinfra.NewAESGCMEncryptor(cryptoinfra.DeriveKey("handler-test-fixture"))
 	if err != nil {
 		t.Fatalf("NewAESGCMEncryptor: %v", err)
 	}

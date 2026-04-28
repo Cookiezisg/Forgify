@@ -22,8 +22,8 @@ import (
 	"go.uber.org/zap"
 
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
-	"github.com/sunweilin/forgify/backend/internal/domain/crypto"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	cryptodomain "github.com/sunweilin/forgify/backend/internal/domain/crypto"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // Service orchestrates apikey CRUD + connectivity testing. It owns the
@@ -34,7 +34,7 @@ import (
 // 不到明文也看不到密文，只拿到 APIKey（密文由 json:"-" 隐藏）和 TestResult。
 type Service struct {
 	repo      apikeydomain.Repository
-	encryptor crypto.Encryptor
+	encryptor cryptodomain.Encryptor
 	tester    ConnectivityTester
 	log       *zap.Logger
 }
@@ -44,7 +44,7 @@ type Service struct {
 //
 // NewService 装配 Service 依赖。nil logger 会 panic——nil logger 是接线
 // bug，不是运行时状态。
-func NewService(repo apikeydomain.Repository, enc crypto.Encryptor, tester ConnectivityTester, log *zap.Logger) *Service {
+func NewService(repo apikeydomain.Repository, enc cryptodomain.Encryptor, tester ConnectivityTester, log *zap.Logger) *Service {
 	if log == nil {
 		panic("apikey.NewService: logger is nil")
 	}
@@ -84,7 +84,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*apikeydomain.API
 	if err := validateCreate(in); err != nil {
 		return nil, err
 	}
-	uid, ok := reqctx.GetUserID(ctx)
+	uid, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("apikey.Service.Create: missing user id in context")
 	}

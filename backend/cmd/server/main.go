@@ -2,10 +2,6 @@
 // middleware chain, and graceful shutdown.
 //
 // Command server 启动 Forgify 后端：logger、DB、带中间件链的 HTTP 路由、优雅关闭。
-//
-// TODO: audit all import aliases per S13 (<name><role> convention) after
-// the chat infra refactor is fully complete.
-// TODO: 重构完成后按 S13（<name><role> 命名约定）统一审计所有 import 别名。
 package main
 
 import (
@@ -34,12 +30,12 @@ import (
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
 	tooldomain "github.com/sunweilin/forgify/backend/internal/domain/tool"
-	infracrypto "github.com/sunweilin/forgify/backend/internal/infra/crypto"
-	"github.com/sunweilin/forgify/backend/internal/infra/db"
-	"github.com/sunweilin/forgify/backend/internal/infra/events/memory"
+	cryptoinfra "github.com/sunweilin/forgify/backend/internal/infra/crypto"
+	dbinfra "github.com/sunweilin/forgify/backend/internal/infra/db"
+	memoryinfra "github.com/sunweilin/forgify/backend/internal/infra/events/memory"
 	llminfra "github.com/sunweilin/forgify/backend/internal/infra/llm"
-	"github.com/sunweilin/forgify/backend/internal/infra/logger"
-	"github.com/sunweilin/forgify/backend/internal/infra/sandbox"
+	loggerinfra "github.com/sunweilin/forgify/backend/internal/infra/logger"
+	sandboxinfra "github.com/sunweilin/forgify/backend/internal/infra/sandbox"
 	apikeystore "github.com/sunweilin/forgify/backend/internal/infra/store/apikey"
 	chatstore "github.com/sunweilin/forgify/backend/internal/infra/store/chat"
 	convstore "github.com/sunweilin/forgify/backend/internal/infra/store/conversation"
@@ -56,32 +52,32 @@ func main() {
 	integrationDir := flag.String("integration-dir", "../testend", "Path to testend/ directory served at /dev/static/ (dev mode)")
 	flag.Parse()
 
-	var broadcaster *logger.LogBroadcaster
+	var broadcaster *loggerinfra.LogBroadcaster
 	var logExtras []zapcore.Core
 	if *dev {
-		broadcaster = logger.NewLogBroadcaster()
+		broadcaster = loggerinfra.NewLogBroadcaster()
 		logExtras = []zapcore.Core{broadcaster}
 	}
 
-	log, err := logger.New(*dev, logExtras...)
+	log, err := loggerinfra.New(*dev, logExtras...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer log.Sync() //nolint:errcheck
 
-	gdb, err := db.Open(db.Config{DataDir: *dataDir})
+	gdb, err := dbinfra.Open(dbinfra.Config{DataDir: *dataDir})
 	if err != nil {
 		log.Error("open db", zap.Error(err))
 		os.Exit(1)
 	}
 	defer func() {
-		if err := db.Close(gdb); err != nil {
+		if err := dbinfra.Close(gdb); err != nil {
 			log.Warn("close db", zap.Error(err))
 		}
 	}()
 
-	if err := db.Migrate(gdb,
+	if err := dbinfra.Migrate(gdb,
 		&apikeydomain.APIKey{},
 		&modeldomain.ModelConfig{},
 		&convdomain.Conversation{},
@@ -98,12 +94,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	fingerprint, err := infracrypto.MachineFingerprint()
+	fingerprint, err := cryptoinfra.MachineFingerprint()
 	if err != nil {
 		log.Error("machine fingerprint", zap.Error(err))
 		os.Exit(1)
 	}
-	encryptor, err := infracrypto.NewAESGCMEncryptor(infracrypto.DeriveKey(fingerprint))
+	encryptor, err := cryptoinfra.NewAESGCMEncryptor(cryptoinfra.DeriveKey(fingerprint))
 	if err != nil {
 		log.Error("build encryptor", zap.Error(err))
 		os.Exit(1)
@@ -132,13 +128,13 @@ func main() {
 	}
 	toolService := toolapp.NewService(
 		toolstore.New(gdb),
-		sandbox.New("python3"),
+		sandboxinfra.New("python3"),
 		toolLLM,
 		log,
 	)
 
 	chatRepo := chatstore.New(gdb)
-	eventsBridge := memory.NewBridge(log)
+	eventsBridge := memoryinfra.NewBridge(log)
 	chatService := chatapp.NewService(
 		chatRepo,
 		convstore.New(gdb),

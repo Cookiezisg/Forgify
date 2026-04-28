@@ -16,14 +16,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 func TestInjectUserID_StampsDefaultIntoContext(t *testing.T) {
 	var gotID string
 	var gotOK bool
 	handler := InjectUserID(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		gotID, gotOK = reqctx.GetUserID(r.Context())
+		gotID, gotOK = reqctxpkg.GetUserID(r.Context())
 	}))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/x", nil))
@@ -31,8 +31,8 @@ func TestInjectUserID_StampsDefaultIntoContext(t *testing.T) {
 	if !gotOK {
 		t.Fatalf("userID not set by middleware")
 	}
-	if gotID != reqctx.DefaultLocalUserID {
-		t.Errorf("userID: got %q, want %q", gotID, reqctx.DefaultLocalUserID)
+	if gotID != reqctxpkg.DefaultLocalUserID {
+		t.Errorf("userID: got %q, want %q", gotID, reqctxpkg.DefaultLocalUserID)
 	}
 }
 

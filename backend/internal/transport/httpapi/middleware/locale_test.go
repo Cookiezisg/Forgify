@@ -15,30 +15,30 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 func TestInjectLocale_ParsesAcceptLanguage(t *testing.T) {
 	cases := []struct {
 		header string
-		want   reqctx.Locale
+		want   reqctxpkg.Locale
 	}{
-		{"", reqctx.LocaleZhCN},                 // no header → default
-		{"zh-CN", reqctx.LocaleZhCN},            // exact
-		{"zh-CN,en;q=0.9", reqctx.LocaleZhCN},   // zh primary
-		{"en", reqctx.LocaleEn},                 // english
-		{"en-US", reqctx.LocaleEn},              // english regional
-		{"en-US,en;q=0.9,zh;q=0.8", reqctx.LocaleEn},
-		{"EN", reqctx.LocaleEn},                 // case-insensitive
-		{"fr-FR", reqctx.LocaleZhCN},            // unsupported → default
-		{"de", reqctx.LocaleZhCN},               // unsupported → default
+		{"", reqctxpkg.LocaleZhCN},               // no header → default
+		{"zh-CN", reqctxpkg.LocaleZhCN},          // exact
+		{"zh-CN,en;q=0.9", reqctxpkg.LocaleZhCN}, // zh primary
+		{"en", reqctxpkg.LocaleEn},               // english
+		{"en-US", reqctxpkg.LocaleEn},            // english regional
+		{"en-US,en;q=0.9,zh;q=0.8", reqctxpkg.LocaleEn},
+		{"EN", reqctxpkg.LocaleEn},      // case-insensitive
+		{"fr-FR", reqctxpkg.LocaleZhCN}, // unsupported → default
+		{"de", reqctxpkg.LocaleZhCN},    // unsupported → default
 	}
 
 	for _, c := range cases {
 		t.Run(c.header, func(t *testing.T) {
-			var got reqctx.Locale
+			var got reqctxpkg.Locale
 			handler := InjectLocale(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-				got = reqctx.GetLocale(r.Context())
+				got = reqctxpkg.GetLocale(r.Context())
 			}))
 
 			req := httptest.NewRequest("GET", "/x", nil)

@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // Store is the GORM implementation of modeldomain.Repository.
@@ -42,7 +42,7 @@ func New(db *gorm.DB) *Store {
 //
 // userID 从 ctx 取 user ID。缺失代表服务端接线 bug（中间件未跑），不是 401。
 func userID(ctx context.Context) (string, error) {
-	id, ok := reqctx.GetUserID(ctx)
+	id, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return "", fmt.Errorf("modelstore: missing user id in context")
 	}

@@ -14,7 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // newTestDeps returns a Deps with a no-op logger so tests are quiet.
@@ -125,7 +125,7 @@ func TestRouter_UserIDInjectedIntoHandlerContext(t *testing.T) {
 	var gotID string
 	var gotOK bool
 	testHandler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		gotID, gotOK = reqctx.GetUserID(r.Context())
+		gotID, gotOK = reqctxpkg.GetUserID(r.Context())
 	})
 
 	h := applyChain(testHandler, newTestDeps())
@@ -134,8 +134,8 @@ func TestRouter_UserIDInjectedIntoHandlerContext(t *testing.T) {
 	if !gotOK {
 		t.Fatalf("GetUserID ok: got false — InjectUserID not wired")
 	}
-	if gotID != reqctx.DefaultLocalUserID {
-		t.Errorf("userID: got %q, want %q", gotID, reqctx.DefaultLocalUserID)
+	if gotID != reqctxpkg.DefaultLocalUserID {
+		t.Errorf("userID: got %q, want %q", gotID, reqctxpkg.DefaultLocalUserID)
 	}
 }
 
@@ -145,9 +145,9 @@ func TestRouter_LocaleInjectedIntoHandlerContext(t *testing.T) {
 	//
 	// 通过 applyChain 到达的 handler 必须能从 ctx 读出解析好的 Locale。
 	// 守护接线：从链里撤掉 InjectLocale 会让本测试失败。
-	var gotLocale reqctx.Locale
+	var gotLocale reqctxpkg.Locale
 	testHandler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		gotLocale = reqctx.GetLocale(r.Context())
+		gotLocale = reqctxpkg.GetLocale(r.Context())
 	})
 
 	h := applyChain(testHandler, newTestDeps())
@@ -155,7 +155,7 @@ func TestRouter_LocaleInjectedIntoHandlerContext(t *testing.T) {
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
-	if gotLocale != reqctx.LocaleEn {
-		t.Errorf("locale: got %q, want %q", gotLocale, reqctx.LocaleEn)
+	if gotLocale != reqctxpkg.LocaleEn {
+		t.Errorf("locale: got %q, want %q", gotLocale, reqctxpkg.LocaleEn)
 	}
 }

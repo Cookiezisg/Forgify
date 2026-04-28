@@ -1,18 +1,13 @@
-// stream.go — Consumes one LLM iter.Seq stream, pushes SSE events, and
-// assembles typed Blocks in stream-arrival order.
+// stream.go — One LLM call: consume stream events, push SSE, assemble Blocks.
+// No database writes happen here. The caller (agentRun) owns persistence.
 //
-// Block ordering follows the stream: reasoning → text(preamble) → tool_calls.
-// seq and created_at are stamped when each block is finalised, so they
-// reflect the actual generation sequence rather than a post-hoc grouping.
-//
-// stream.go — 消费一次 LLM iter.Seq 流，推送 SSE 事件，按流到达顺序组装 Block。
-// seq 和 created_at 在每个 block 完成时打入，真实反映生成顺序。
+// stream.go — 单次 LLM 调用：消费流事件、推 SSE、组装 Block。
+// 不写 DB——持久化由调用方 agentRun 负责。
 package chat
 
 import (
 	"context"
 	"encoding/json"
-	"iter"
 	"strings"
 	"time"
 
@@ -24,128 +19,55 @@ import (
 
 // toolAccum accumulates streaming fragments for one tool call.
 //
-// toolAccum 累积一个 tool call 的流式片段。
+// toolAccum 累积单个 tool call 的流式片段。
 type toolAccum struct {
-	id   string
-	name string
-	args strings.Builder
+	id, name string
+	args     strings.Builder
 }
 
-// streamBlockBuilder builds Blocks in the order events arrive from the LLM.
-// It keeps track of the "current" open text/reasoning accumulator and closes
-// it whenever the event type changes. Tool calls are batched in accums and
-// finalised all at once at EventFinish.
+// streamLLM executes one LLM call, publishing SSE events in real-time as each
+// stream event arrives. It assembles typed Blocks from the accumulated buffers
+// and extracts any tool calls the LLM requested.
 //
-// streamBlockBuilder 按事件到达顺序构建 Block。
-// 跟踪当前正在累积的 text/reasoning block，类型切换时关闭并新开。
-// tool call 批量累积，在 EventFinish 时按 index 顺序 finalize。
-type streamBlockBuilder struct {
-	blocks []chatdomain.Block
-	seq    int
-
-	// current open text or reasoning accumulator; "" means nothing open
-	curType string
-	curBuf  strings.Builder
-
-	accums map[int]*toolAccum // ToolIndex → accumulator
-}
-
-func newStreamBlockBuilder() *streamBlockBuilder {
-	return &streamBlockBuilder{accums: map[int]*toolAccum{}}
-}
-
-// switchTo closes the current open buffer (if any) and records it as a block,
-// then resets the buffer for the given type. Pass "" to just close.
-func (b *streamBlockBuilder) switchTo(t string) {
-	if b.curBuf.Len() > 0 {
-		d, _ := json.Marshal(chatdomain.TextData{Text: b.curBuf.String()})
-		b.blocks = append(b.blocks, chatdomain.Block{
-			ID: newBlockID(), Seq: b.seq, Type: b.curType,
-			Data: string(d), CreatedAt: time.Now().UTC(),
-		})
-		b.seq++
-		b.curBuf.Reset()
-	}
-	b.curType = t
-}
-
-func (b *streamBlockBuilder) appendText(s string) {
-	if b.curType != chatdomain.BlockTypeText {
-		b.switchTo(chatdomain.BlockTypeText)
-	}
-	b.curBuf.WriteString(s)
-}
-
-func (b *streamBlockBuilder) appendReasoning(s string) {
-	if b.curType != chatdomain.BlockTypeReasoning {
-		b.switchTo(chatdomain.BlockTypeReasoning)
-	}
-	b.curBuf.WriteString(s)
-}
-
-func (b *streamBlockBuilder) startTool(idx int, id, name string) {
-	// Close any open text/reasoning block before tool calls begin.
-	b.switchTo("")
-	b.accums[idx] = &toolAccum{id: id, name: name}
-}
-
-// finalize closes any open buffer and appends all accumulated tool_call blocks
-// in ToolIndex order. Called at EventFinish or stream end.
-func (b *streamBlockBuilder) finalize() {
-	b.switchTo("") // close trailing text/reasoning if any
-	for i := range len(b.accums) {
-		a, ok := b.accums[i]
-		if !ok {
-			continue
-		}
-		summary, args := parseToolArgs(a.args.String())
-		d, _ := json.Marshal(chatdomain.ToolCallData{
-			ID: a.id, Name: a.name, Summary: summary, Arguments: args,
-		})
-		b.blocks = append(b.blocks, chatdomain.Block{
-			ID: newBlockID(), Seq: b.seq, Type: chatdomain.BlockTypeToolCall,
-			Data: string(d), CreatedAt: time.Now().UTC(),
-		})
-		b.seq++
-	}
-}
-
-// consumeStream reads the event stream, publishes SSE, and assembles Blocks
-// in stream-arrival order. Returns the assembled blocks, stop reason, and
-// token counts.
-//
-// consumeStream 读取事件流，推送 SSE，按到达顺序组装 Block。
-func (s *Service) consumeStream(
+// streamLLM 执行一次 LLM 调用，每个流事件到达时实时推送 SSE。
+// 从累积缓冲中组装 Block，并提取 LLM 请求的工具调用。
+func (s *Service) streamLLM(
 	ctx context.Context,
-	stream iter.Seq[llminfra.StreamEvent],
+	client llminfra.Client,
+	req llminfra.Request,
 	convID, msgID string,
-) (blocks []chatdomain.Block, stopReason string, inputTokens, outputTokens int) {
-	builder := newStreamBlockBuilder()
+) (blocks []chatdomain.Block, toolCalls []chatdomain.ToolCallData, stopReason string, inputTokens, outputTokens int) {
+	var textBuf, reasonBuf strings.Builder
+	accums := map[int]*toolAccum{}
 	stopReason = chatdomain.StopReasonEndTurn
 
-	for event := range stream {
+	for event := range client.Stream(ctx, req) {
 		switch event.Type {
 		case llminfra.EventText:
-			builder.appendText(event.Delta)
+			textBuf.WriteString(event.Delta)
 			s.bridge.Publish(ctx, convID, eventsdomain.ChatToken{
 				ConversationID: convID, MessageID: msgID, Delta: event.Delta,
 			})
 
 		case llminfra.EventReasoning:
-			builder.appendReasoning(event.Delta)
+			reasonBuf.WriteString(event.Delta)
 			s.bridge.Publish(ctx, convID, eventsdomain.ChatReasoningToken{
 				ConversationID: convID, MessageID: msgID, Delta: event.Delta,
 			})
 
 		case llminfra.EventToolStart:
-			builder.startTool(event.ToolIndex, event.ToolID, event.ToolName)
+			accums[event.ToolIndex] = &toolAccum{id: event.ToolID, name: event.ToolName}
 			s.bridge.Publish(ctx, convID, eventsdomain.ChatToolCallStart{
 				ConversationID: convID, MessageID: msgID,
 				ToolCallID: event.ToolID, ToolName: event.ToolName,
 			})
+			// TODO (A1): mid-stream tool execution — when EventToolStart(N+1) arrives,
+			// accums[N].args is complete; start executing tool N without waiting for EventFinish.
+			// TODO (A1)：mid-stream 工具执行——当 EventToolStart(N+1) 到达时，
+			// accums[N].args 已完整，无需等 EventFinish 即可开始执行工具 N。
 
 		case llminfra.EventToolDelta:
-			if a := builder.accums[event.ToolIndex]; a != nil {
+			if a := accums[event.ToolIndex]; a != nil {
 				a.args.WriteString(event.ArgsDelta)
 			}
 
@@ -173,16 +95,79 @@ func (s *Service) consumeStream(
 		stopReason = chatdomain.StopReasonCancelled
 	}
 
-	builder.finalize()
-	return builder.blocks, stopReason, inputTokens, outputTokens
+	blocks = assembleBlocks(textBuf.String(), reasonBuf.String(), accums)
+	toolCalls = extractToolCalls(blocks)
+	return
+}
+
+// assembleBlocks builds the final Block slice from accumulated stream buffers.
+// Order: reasoning → text → tool_calls (by ToolIndex). Seq is stamped locally
+// here and overwritten globally by stampBlocks when written to the database.
+//
+// assembleBlocks 从流缓冲组装最终的 Block 列表。
+// 顺序：reasoning → text → tool_calls（按 ToolIndex）。
+// Seq 在此打本地值，写 DB 时由 stampBlocks 覆盖为全局值。
+func assembleBlocks(text, reasoning string, accums map[int]*toolAccum) []chatdomain.Block {
+	var blocks []chatdomain.Block
+	seq := 0
+
+	if reasoning != "" {
+		d, _ := json.Marshal(chatdomain.TextData{Text: reasoning})
+		blocks = append(blocks, chatdomain.Block{
+			ID: newBlockID(), Seq: seq, Type: chatdomain.BlockTypeReasoning,
+			Data: string(d), CreatedAt: time.Now().UTC(),
+		})
+		seq++
+	}
+	if text != "" {
+		d, _ := json.Marshal(chatdomain.TextData{Text: text})
+		blocks = append(blocks, chatdomain.Block{
+			ID: newBlockID(), Seq: seq, Type: chatdomain.BlockTypeText,
+			Data: string(d), CreatedAt: time.Now().UTC(),
+		})
+		seq++
+	}
+	for i := range len(accums) {
+		a, ok := accums[i]
+		if !ok {
+			continue
+		}
+		summary, args := parseToolArgs(a.args.String())
+		d, _ := json.Marshal(chatdomain.ToolCallData{
+			ID: a.id, Name: a.name, Summary: summary, Arguments: args,
+		})
+		blocks = append(blocks, chatdomain.Block{
+			ID: newBlockID(), Seq: seq, Type: chatdomain.BlockTypeToolCall,
+			Data: string(d), CreatedAt: time.Now().UTC(),
+		})
+		seq++
+	}
+	return blocks
+}
+
+// extractToolCalls pulls ToolCallData out of tool_call typed blocks.
+//
+// extractToolCalls 从 tool_call 类型的 block 中提取 ToolCallData。
+func extractToolCalls(blocks []chatdomain.Block) []chatdomain.ToolCallData {
+	var out []chatdomain.ToolCallData
+	for _, b := range blocks {
+		if b.Type != chatdomain.BlockTypeToolCall {
+			continue
+		}
+		var d chatdomain.ToolCallData
+		if json.Unmarshal([]byte(b.Data), &d) == nil {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // parseToolArgs extracts the "summary" field from a raw args JSON string and
-// returns the summary value and the remaining arguments as a map.
+// returns the summary and the remaining arguments as a map.
 // Falls back to {"raw": original} when the JSON is malformed.
 //
-// parseToolArgs 从原始 args JSON 中提取 "summary" 字段，
-// 返回 summary 值和剩余参数 map。JSON 不合法时兜底为 {"raw": original}。
+// parseToolArgs 从原始 args JSON 中提取 "summary"，返回 summary 和剩余参数 map。
+// JSON 不合法时兜底为 {"raw": original}。
 func parseToolArgs(argsJSON string) (summary string, args map[string]any) {
 	summary, stripped := agentapp.StripSummary(argsJSON)
 	if err := json.Unmarshal([]byte(stripped), &args); err != nil {

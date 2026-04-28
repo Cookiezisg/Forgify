@@ -18,7 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // Service orchestrates conversation CRUD.
@@ -43,7 +43,7 @@ func NewService(repo convdomain.Repository, log *zap.Logger) *Service {
 //
 // Create 创建一个新对话，title 可为空。
 func (s *Service) Create(ctx context.Context, title string) (*convdomain.Conversation, error) {
-	uid, ok := reqctx.GetUserID(ctx)
+	uid, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return nil, fmt.Errorf("conversation.Service.Create: missing user id in context")
 	}

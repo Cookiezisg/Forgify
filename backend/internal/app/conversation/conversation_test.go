@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 type fakeRepo struct {
@@ -30,7 +30,7 @@ func (r *fakeRepo) Save(_ context.Context, c *convdomain.Conversation) error {
 }
 
 func (r *fakeRepo) Get(ctx context.Context, id string) (*convdomain.Conversation, error) {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	c, ok := r.rows[id]
 	if !ok || c.UserID != uid {
 		return nil, convdomain.ErrNotFound
@@ -40,7 +40,7 @@ func (r *fakeRepo) Get(ctx context.Context, id string) (*convdomain.Conversation
 }
 
 func (r *fakeRepo) List(ctx context.Context, _ convdomain.ListFilter) ([]*convdomain.Conversation, string, error) {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	var out []*convdomain.Conversation
 	for _, c := range r.rows {
 		if c.UserID == uid {
@@ -52,7 +52,7 @@ func (r *fakeRepo) List(ctx context.Context, _ convdomain.ListFilter) ([]*convdo
 }
 
 func (r *fakeRepo) Delete(ctx context.Context, id string) error {
-	uid, _ := reqctx.GetUserID(ctx)
+	uid, _ := reqctxpkg.GetUserID(ctx)
 	c, ok := r.rows[id]
 	if !ok || c.UserID != uid {
 		return convdomain.ErrNotFound
@@ -62,7 +62,7 @@ func (r *fakeRepo) Delete(ctx context.Context, id string) error {
 }
 
 func ctxAlice() context.Context {
-	return reqctx.SetUserID(context.Background(), "u-alice")
+	return reqctxpkg.SetUserID(context.Background(), "u-alice")
 }
 
 func newSvc(t *testing.T) *Service {

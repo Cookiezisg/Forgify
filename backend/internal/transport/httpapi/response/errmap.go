@@ -9,7 +9,7 @@ import (
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
 	chatdomain "github.com/sunweilin/forgify/backend/internal/domain/chat"
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
-	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
+	errorsdomain "github.com/sunweilin/forgify/backend/internal/domain/errors"
 	modeldomain "github.com/sunweilin/forgify/backend/internal/domain/model"
 	tooldomain "github.com/sunweilin/forgify/backend/internal/domain/tool"
 )
@@ -29,8 +29,8 @@ type errMapping struct {
 // errTable 是 domain → HTTP 翻译的唯一事实源。新增 domain 错误：
 // 在 domain/<name>/errors.go 声明 sentinel，在本表加一行即可。
 var errTable = map[error]errMapping{
-	derrors.ErrInvalidRequest: {http.StatusBadRequest, "INVALID_REQUEST"},
-	derrors.ErrInternal:       {http.StatusInternalServerError, "INTERNAL_ERROR"},
+	errorsdomain.ErrInvalidRequest: {http.StatusBadRequest, "INVALID_REQUEST"},
+	errorsdomain.ErrInternal:       {http.StatusInternalServerError, "INTERNAL_ERROR"},
 
 	// apikey domain / apikey domain 层
 	apikeydomain.ErrNotFound:            {http.StatusNotFound, "API_KEY_NOT_FOUND"},

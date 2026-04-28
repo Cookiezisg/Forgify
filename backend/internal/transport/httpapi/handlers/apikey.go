@@ -18,7 +18,7 @@ import (
 
 	apikeyapp "github.com/sunweilin/forgify/backend/internal/app/apikey"
 	apikeydomain "github.com/sunweilin/forgify/backend/internal/domain/apikey"
-	derrors "github.com/sunweilin/forgify/backend/internal/domain/errors"
+	errorsdomain "github.com/sunweilin/forgify/backend/internal/domain/errors"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/pagination"
 	"github.com/sunweilin/forgify/backend/internal/transport/httpapi/response"
 )
@@ -211,10 +211,10 @@ func (h *APIKeyHandler) test(w http.ResponseWriter, r *http.Request, id string) 
 	})
 }
 
-// decodeJSON reads JSON into v; returns a derrors.ErrInvalidRequest-wrapped
+// decodeJSON reads JSON into v; returns a errorsdomain.ErrInvalidRequest-wrapped
 // error on malformed input so errmap renders 400 INVALID_REQUEST uniformly.
 //
-// decodeJSON 把 JSON 读入 v；输入畸形时返回包裹 derrors.ErrInvalidRequest
+// decodeJSON 把 JSON 读入 v；输入畸形时返回包裹 errorsdomain.ErrInvalidRequest
 // 的错误，让 errmap 统一渲染为 400 INVALID_REQUEST。
 func decodeJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
@@ -225,9 +225,9 @@ func decodeJSON(r *http.Request, v any) error {
 	return nil
 }
 
-// joinInvalidRequest wraps err so errors.Is can match derrors.ErrInvalidRequest.
+// joinInvalidRequest wraps err so errors.Is can match errorsdomain.ErrInvalidRequest.
 //
-// joinInvalidRequest 包装 err，让 errors.Is 能匹配到 derrors.ErrInvalidRequest。
+// joinInvalidRequest 包装 err，让 errors.Is 能匹配到 errorsdomain.ErrInvalidRequest。
 func joinInvalidRequest(err error) error {
-	return errors.Join(err, derrors.ErrInvalidRequest)
+	return errors.Join(err, errorsdomain.ErrInvalidRequest)
 }

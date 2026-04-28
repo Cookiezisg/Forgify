@@ -9,7 +9,7 @@ import (
 	"errors"
 	"testing"
 
-	domaincrypto "github.com/sunweilin/forgify/backend/internal/domain/crypto"
+	cryptodomain "github.com/sunweilin/forgify/backend/internal/domain/crypto"
 )
 
 // testKey is a deterministic 32-byte key used across tests.
@@ -28,7 +28,7 @@ func newTestEncryptor(t *testing.T) *AESGCMEncryptor {
 func TestAESGCMEncryptor_SatisfiesInterface(t *testing.T) {
 	// Compile-time check: AESGCMEncryptor must implement domain Encryptor.
 	// 编译期检查：AESGCMEncryptor 必须实现 domain Encryptor。
-	var _ domaincrypto.Encryptor = (*AESGCMEncryptor)(nil)
+	var _ cryptodomain.Encryptor = (*AESGCMEncryptor)(nil)
 }
 
 func TestAESGCMEncryptor_RoundTrip(t *testing.T) {

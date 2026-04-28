@@ -171,7 +171,7 @@ type RunShellTool struct{}
 func (t *RunShellTool) Name() string { return "run_shell" }
 func (t *RunShellTool) Description() string {
 	return "Execute a shell command and return its stdout and stderr output. " +
-		"Timeout: 60 seconds. Working directory: current process directory."
+		"Working directory: current process directory."
 }
 func (t *RunShellTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
@@ -189,10 +189,7 @@ func (t *RunShellTool) Execute(ctx context.Context, argsJSON string) (string, er
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("run_shell: bad args: %w", err)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
-	out, err := exec.CommandContext(runCtx, "sh", "-c", args.Command).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "sh", "-c", args.Command).CombinedOutput()
 	result := map[string]any{
 		"command": args.Command,
 		"output":  strings.TrimSpace(string(out)),
@@ -216,7 +213,7 @@ func (t *RunPythonTool) Name() string { return "run_python" }
 func (t *RunPythonTool) Description() string {
 	return "Execute a Python script and return its output (stdout). " +
 		"Write a complete script — not just a function. " +
-		"Use print() to produce output. Timeout: 30 seconds."
+		"Use print() to produce output."
 }
 func (t *RunPythonTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
@@ -245,10 +242,7 @@ func (t *RunPythonTool) Execute(ctx context.Context, argsJSON string) (string, e
 	}
 	tmp.Close()
 
-	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	out, execErr := exec.CommandContext(runCtx, "python3", tmp.Name()).CombinedOutput()
+	out, execErr := exec.CommandContext(ctx, "python3", tmp.Name()).CombinedOutput()
 	result := map[string]any{
 		"output": strings.TrimSpace(string(out)),
 		"ok":     execErr == nil,

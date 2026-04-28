@@ -1,9 +1,12 @@
-// history.go — LLM message history reconstruction from stored Blocks,
-// and the shared block→LLM-message conversion used by both the pipeline
-// (in-memory accumulation) and the DB loader (history rebuild).
+// history.go — LLM history construction from DB messages and in-loop extension.
+// buildHistory is called once per user turn (before the loop).
+// extendHistory is called after each tool-calling step (inside the loop).
+// Both paths share blocksToAssistantLLM — there is only one converter.
 //
-// history.go — 从已存储 Block 重建 LLM 消息历史，
-// 以及被 pipeline（内存累积）和 DB 加载器（历史重建）共用的 block→LLM 消息转换。
+// history.go — 从 DB 消息构建 LLM 历史 + 循环内扩展。
+// buildHistory 每个用户回合调用一次（循环前）。
+// extendHistory 在每个工具调用步骤后调用（循环内）。
+// 两条路径共用 blocksToAssistantLLM——只有一个转换器。
 package chat
 
 import (
@@ -18,35 +21,29 @@ import (
 	llminfra "github.com/sunweilin/forgify/backend/internal/infra/llm"
 )
 
-// buildLLMHistory loads up to 200 messages for the conversation and converts
-// each one to the LLM wire format. Streaming/pending messages are skipped —
-// they represent in-progress turns that should not appear in history.
-//
-// buildLLMHistory 加载最多 200 条消息并转为 LLM 协议格式。
-// streaming/pending 消息跳过——它们是正在处理中的回合，不应出现在历史中。
 // maxHistoryMessages is the maximum number of past messages loaded per LLM call.
 // Older messages beyond this limit are silently dropped.
 //
 // maxHistoryMessages 是每次 LLM 调用加载的历史消息上限，超出的旧消息静默丢弃。
 const maxHistoryMessages = 200
 
-// buildLLMHistory loads up to maxHistoryMessages completed messages and converts
-// them to LLM wire format. currentUserMsgID is the user message that triggered
-// the current task: it is excluded from the history scan and appended last so
-// the conversation always ends with the user's latest message regardless of DB
-// insertion order. This prevents the queued-message race where a later user
-// message has an earlier created_at than the assistant that follows the first.
+// buildHistory loads completed messages from the DB and returns them as LLM
+// wire messages. currentUserMsgID is excluded from the main scan and appended
+// last, ensuring the LLM always sees the triggering message at the end
+// regardless of created_at ordering (prevents the fast-send race condition).
 //
-// buildLLMHistory 加载最多 maxHistoryMessages 条完整消息并转为 LLM 协议格式。
-// currentUserMsgID 是触发当前任务的 user 消息：从历史扫描中排除，最后追加，
-// 保证对话始终以用户最新消息结尾，避免队列消息在 DB 插入顺序上的竞态。
-func (s *Service) buildLLMHistory(ctx context.Context, conversationID, currentUserMsgID string) ([]llminfra.LLMMessage, error) {
-	rows, _, err := s.repo.ListByConversation(ctx, conversationID, chatdomain.ListFilter{Limit: maxHistoryMessages})
+// buildHistory 从 DB 加载已完成消息并转为 LLM 协议格式。
+// currentUserMsgID 排除在主扫描外并追加到末尾，保证 LLM 以该消息作为待回复轮次，
+// 不受快速连发时 created_at 竞态的影响。
+func (s *Service) buildHistory(ctx context.Context, convID, currentUserMsgID string) ([]llminfra.LLMMessage, error) {
+	rows, _, err := s.repo.ListByConversation(ctx, convID, chatdomain.ListFilter{Limit: maxHistoryMessages})
 	if err != nil {
 		return nil, err
 	}
+
 	var out []llminfra.LLMMessage
 	var currentUserMsg *chatdomain.Message
+
 	for _, m := range rows {
 		if m.Status == chatdomain.StatusStreaming || m.Status == chatdomain.StatusPending {
 			continue
@@ -55,26 +52,43 @@ func (s *Service) buildLLMHistory(ctx context.Context, conversationID, currentUs
 			currentUserMsg = m
 			continue
 		}
-		msgs, err := s.toLLMMessages(ctx, m)
+		msgs, err := s.blocksToLLM(ctx, m)
 		if err != nil {
-			return nil, fmt.Errorf("buildLLMHistory: message %q: %w", m.ID, err)
+			return nil, fmt.Errorf("buildHistory: message %q: %w", m.ID, err)
 		}
 		out = append(out, msgs...)
 	}
-	// Append the current user message last so the LLM always sees it as the
-	// turn to respond to, regardless of its created_at relative to other rows.
-	// 最后追加 current user message，让 LLM 始终以其为待回复轮次。
+
 	if currentUserMsg != nil {
 		msg, err := s.buildUserLLMMessage(ctx, currentUserMsg)
 		if err != nil {
-			return nil, fmt.Errorf("buildLLMHistory: current user message %q: %w", currentUserMsgID, err)
+			return nil, fmt.Errorf("buildHistory: current user msg %q: %w", currentUserMsgID, err)
 		}
 		out = append(out, msg)
 	}
 	return out, nil
 }
 
-func (s *Service) toLLMMessages(ctx context.Context, m *chatdomain.Message) ([]llminfra.LLMMessage, error) {
+// extendHistory appends one ReAct step's contribution to the running history.
+// aBlocks are the assistant's response; rBlocks are the tool results.
+// This is the single point where in-loop history grows — same blocksToAssistantLLM
+// converter used by buildHistory for DB-loaded messages.
+//
+// extendHistory 把一个 ReAct 步骤的贡献追加到运行中的历史。
+// aBlocks 是 assistant 回复；rBlocks 是工具结果。
+// 这是循环内历史增长的唯一入口，与 buildHistory 使用相同的转换器。
+func extendHistory(history []llminfra.LLMMessage, aBlocks, rBlocks []chatdomain.Block) ([]llminfra.LLMMessage, error) {
+	msgs, err := blocksToAssistantLLM(append(aBlocks, rBlocks...))
+	if err != nil {
+		return nil, err
+	}
+	return append(history, msgs...), nil
+}
+
+// blocksToLLM converts one persisted Message to LLM wire messages.
+//
+// blocksToLLM 把一条已持久化的 Message 转为 LLM 协议消息。
+func (s *Service) blocksToLLM(ctx context.Context, m *chatdomain.Message) ([]llminfra.LLMMessage, error) {
 	switch m.Role {
 	case chatdomain.RoleUser:
 		msg, err := s.buildUserLLMMessage(ctx, m)
@@ -88,25 +102,17 @@ func (s *Service) toLLMMessages(ctx context.Context, m *chatdomain.Message) ([]l
 	return nil, nil
 }
 
-// ── Shared block→LLM conversion ───────────────────────────────────────────────
-
-// blocksToAssistantLLM converts a slice of blocks (from one assistant turn)
-// into the LLM wire format. Used in two places:
-//   - history.go: rebuilding DB history before a new conversation turn
-//   - pipeline.go: building per-step history during the ReAct loop
+// blocksToAssistantLLM converts an assistant turn's blocks into LLM wire
+// messages. A turn with tool calls expands to:
 //
-// An assistant turn with tool calls expands to:
+//	[assistant{text, reasoning, toolCalls}] + [N × role=tool messages]
 //
-//	[assistant{toolCalls, reasoning}] + [N × role=tool messages]
+// Used by both buildHistory (DB-loaded) and extendHistory (in-loop accumulation).
 //
-// blocksToAssistantLLM 把一个 assistant 回合的 blocks 转为 LLM 协议格式。
-// 在两处使用：
-//   - history.go：新对话轮次前从 DB 重建历史
-//   - pipeline.go：ReAct loop 中构建逐步历史
+// blocksToAssistantLLM 把一个 assistant 回合的 blocks 转为 LLM 协议消息。
+// 含工具调用的回合展开为：
 //
-// 含 tool call 的 assistant 回合展开为：
-//
-//	[assistant{toolCalls, reasoning}] + [N 条 role=tool 消息]
+//	[assistant{text, reasoning, toolCalls}] + [N 条 role=tool 消息]
 func blocksToAssistantLLM(blocks []chatdomain.Block) ([]llminfra.LLMMessage, error) {
 	assistant := llminfra.LLMMessage{Role: llminfra.RoleAssistant}
 	var toolResults []llminfra.LLMMessage
@@ -116,24 +122,24 @@ func blocksToAssistantLLM(blocks []chatdomain.Block) ([]llminfra.LLMMessage, err
 		case chatdomain.BlockTypeReasoning:
 			var d chatdomain.TextData
 			if err := json.Unmarshal([]byte(b.Data), &d); err != nil {
-				return nil, fmt.Errorf("blocksToAssistantLLM: unmarshal reasoning block %q: %w", b.ID, err)
+				return nil, fmt.Errorf("blocksToAssistantLLM: reasoning block %q: %w", b.ID, err)
 			}
 			assistant.ReasoningContent = d.Text
 
 		case chatdomain.BlockTypeText:
 			var d chatdomain.TextData
 			if err := json.Unmarshal([]byte(b.Data), &d); err != nil {
-				return nil, fmt.Errorf("blocksToAssistantLLM: unmarshal text block %q: %w", b.ID, err)
+				return nil, fmt.Errorf("blocksToAssistantLLM: text block %q: %w", b.ID, err)
 			}
 			assistant.Content = d.Text
 
 		case chatdomain.BlockTypeToolCall:
 			var d chatdomain.ToolCallData
 			if err := json.Unmarshal([]byte(b.Data), &d); err != nil {
-				return nil, fmt.Errorf("blocksToAssistantLLM: unmarshal tool_call block %q: %w", b.ID, err)
+				return nil, fmt.Errorf("blocksToAssistantLLM: tool_call block %q: %w", b.ID, err)
 			}
-			// summary is never sent back to the LLM; d.Arguments came from JSON so remarshal is safe.
-			// summary 不回传给 LLM；d.Arguments 来源于 JSON，remarshal 安全。
+			// summary is not sent back to the LLM; re-marshal arguments without it.
+			// summary 不回传给 LLM；重新序列化 arguments 以排除 summary。
 			argsJSON, _ := json.Marshal(d.Arguments)
 			assistant.ToolCalls = append(assistant.ToolCalls, llminfra.LLMToolCall{
 				ID: d.ID, Name: d.Name, Arguments: string(argsJSON),
@@ -142,21 +148,24 @@ func blocksToAssistantLLM(blocks []chatdomain.Block) ([]llminfra.LLMMessage, err
 		case chatdomain.BlockTypeToolResult:
 			var d chatdomain.ToolResultData
 			if err := json.Unmarshal([]byte(b.Data), &d); err != nil {
-				return nil, fmt.Errorf("blocksToAssistantLLM: unmarshal tool_result block %q: %w", b.ID, err)
+				return nil, fmt.Errorf("blocksToAssistantLLM: tool_result block %q: %w", b.ID, err)
 			}
 			toolResults = append(toolResults, llminfra.LLMMessage{
-				Role:       llminfra.RoleTool,
-				Content:    d.Result,
-				ToolCallID: d.ToolCallID,
+				Role: llminfra.RoleTool, Content: d.Result, ToolCallID: d.ToolCallID,
 			})
 		}
 	}
-
 	return append([]llminfra.LLMMessage{assistant}, toolResults...), nil
 }
 
-// ── User message building ─────────────────────────────────────────────────────
-
+// buildUserLLMMessage converts a user message's blocks to a single LLM message.
+// Text blocks become inline content; attachment blocks resolve to ContentParts
+// (image → base64, document → extracted text). Attachment failures are soft:
+// logged and skipped so the rest of the message still reaches the LLM.
+//
+// buildUserLLMMessage 把 user 消息的 blocks 转为单条 LLM 消息。
+// text block 变为内联 content；attachment block 解析为 ContentPart
+// （图片 → base64，文档 → 提取文本）。附件失败属于软失败：记录后跳过。
 func (s *Service) buildUserLLMMessage(ctx context.Context, m *chatdomain.Message) (llminfra.LLMMessage, error) {
 	msg := llminfra.LLMMessage{Role: llminfra.RoleUser}
 	var parts []llminfra.ContentPart
@@ -166,15 +175,12 @@ func (s *Service) buildUserLLMMessage(ctx context.Context, m *chatdomain.Message
 		case chatdomain.BlockTypeText:
 			var d chatdomain.TextData
 			if err := json.Unmarshal([]byte(b.Data), &d); err != nil {
-				return llminfra.LLMMessage{}, fmt.Errorf("buildUserLLMMessage: unmarshal text block %q: %w", b.ID, err)
+				return llminfra.LLMMessage{}, fmt.Errorf("buildUserLLMMessage: text block %q: %w", b.ID, err)
 			}
 			parts = append(parts, llminfra.ContentPart{Type: "text", Text: d.Text})
 		case chatdomain.BlockTypeAttachmentRef:
 			part, err := s.attachmentToPart(ctx, b)
 			if err != nil {
-				// Attachment loading is a soft failure — log and skip so the rest
-				// of the message still reaches the LLM.
-				// 附件加载属于软失败——记录并跳过，消息其余部分仍发给 LLM。
 				s.log.Warn("skipping attachment in LLM history", zap.Error(err))
 				continue
 			}
@@ -191,10 +197,10 @@ func (s *Service) buildUserLLMMessage(ctx context.Context, m *chatdomain.Message
 }
 
 // attachmentToPart resolves an attachment_ref block to a ContentPart.
-// Images → image_url (base64); text documents → inlined text part.
+// Images → image_url (base64 data URL); documents → inlined text part.
 //
 // attachmentToPart 把 attachment_ref block 解析为 ContentPart。
-// 图片 → image_url（base64）；文本文档 → 内联 text。
+// 图片 → image_url（base64 data URL）；文档 → 内联文本。
 func (s *Service) attachmentToPart(ctx context.Context, b chatdomain.Block) (*llminfra.ContentPart, error) {
 	var d chatdomain.AttachmentRefData
 	if err := json.Unmarshal([]byte(b.Data), &d); err != nil {

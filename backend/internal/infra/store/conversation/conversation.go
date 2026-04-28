@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	convdomain "github.com/sunweilin/forgify/backend/internal/domain/conversation"
-	"github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
+	reqctxpkg "github.com/sunweilin/forgify/backend/internal/pkg/reqctx"
 )
 
 // Store is the GORM implementation of convdomain.Repository.
@@ -34,7 +34,7 @@ func New(db *gorm.DB) *Store {
 }
 
 func userID(ctx context.Context) (string, error) {
-	id, ok := reqctx.GetUserID(ctx)
+	id, ok := reqctxpkg.GetUserID(ctx)
 	if !ok {
 		return "", fmt.Errorf("convstore: missing user id in context")
 	}
